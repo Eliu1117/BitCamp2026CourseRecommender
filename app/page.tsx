@@ -8,7 +8,8 @@ export default async function Home() {
 
   return (
     <main className="max-w-3xl mx-auto px-6 py-12">
-      <h1 className="text-2xl font-semibold mb-4">CMSC Courses</h1>
+      <h1 className="text-4xl font-bold mb-8">Better Jupiterp</h1>
+      <h2 className="text-2xl font-semibold mb-4">CMSC Courses</h2>
       <ul className="space-y-3">
         {courses.map((course) => (
           <li key={course.course_id} className="rounded-lg border p-4">
