@@ -1,5 +1,6 @@
 const BASE = 'https://api.umd.io/v1';
 const JUPITERP = 'https://api.jupiterp.com';
+const PLANETTERP = 'https://planetterp.com/api/v1';
 
 export interface JupSection {
   course_code: string;
@@ -83,3 +84,52 @@ export interface Professor { name: string; taught: { semester: number; course: s
 export interface Building { name: string; code: string; id: string; long: number; lat: number; }
 export interface Major { major_id: number; name: string; college: string; url: string; }
 export interface BusRoute { route_id: string; title: string; }
+
+// ─── PlanetTerp ──────────────────────────────────────────────────────────────
+
+export interface PlanetTerpCourse {
+  department: string;
+  course_number: number;
+  title: string;
+  description: string;
+  credits: number;
+  average_gpa: number | null;
+  professors: string[];
+}
+
+export interface PlanetTerpProfessor {
+  name: string;
+  slug: string;
+  type: string;
+  courses: string[];
+  average_rating: number | null;
+}
+
+export async function getPlanetTerpCourse(courseId: string): Promise<PlanetTerpCourse | null> {
+  try {
+    const res = await fetch(
+      `${PLANETTERP}/course?name=${encodeURIComponent(courseId)}`,
+    );
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+const professorCache = new Map<string, Promise<PlanetTerpProfessor | null>>();
+
+export function getPlanetTerpProfessor(name: string): Promise<PlanetTerpProfessor | null> {
+  const key = name.toLowerCase();
+  const cached = professorCache.get(key);
+  if (cached) return cached;
+
+  const promise = fetch(
+    `${PLANETTERP}/professor?name=${encodeURIComponent(name)}`,
+  )
+    .then(res => (res.ok ? (res.json() as Promise<PlanetTerpProfessor>) : null))
+    .catch(() => null);
+
+  professorCache.set(key, promise);
+  return promise;
+}
