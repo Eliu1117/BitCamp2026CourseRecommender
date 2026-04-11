@@ -1,6 +1,5 @@
 import { umdio, Course, getJupSections } from '@/lib/api';
 
-export const CURRENTSEM = '202601'
 export async function getAllCoursesByAttribute(params?: {dept_id?: string; semester?: number; credits?: number; }): Promise<Course[]> {
     const results: Course[] = [];
     let page = 1;

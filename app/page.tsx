@@ -1,5 +1,5 @@
 import AuditUploader from '@/app/components/AuditUploader';
-import { getAllCoursesByAttribute, getAllCoursesByGenEd, getCoursesByMultipleGenEds, getSectionsByCourse, CURRENTSEM} from '@/lib/courses';
+import { getAllCoursesByAttribute, getAllCoursesByGenEd, getCoursesByMultipleGenEds, getSectionsByCourse} from '@/lib/courses';
 
 export default async function Home() {
   // const [cmsccourses, scisdshu, dssp] = await Promise.all([

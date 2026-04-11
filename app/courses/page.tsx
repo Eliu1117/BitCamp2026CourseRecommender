@@ -15,13 +15,13 @@ interface CourseWithSections extends Omit<Course, 'sections'> {
 }
 
 async function fetchCoursesForGenEd(tag: string, completedIds: string[]): Promise<CourseWithSections[]> {
-  const res = await fetch(`${UMDIO}/courses?gen_ed=${tag}&per_page=30`);
+  const res = await fetch(`${UMDIO}/courses?gen_ed=${tag}&per_page=50`);
   if (!res.ok) return [];
   const courses: Course[] = await res.json();
 
   const eligible = courses
     .filter(c => !completedIds.includes(c.course_id))
-    .slice(0, 10);
+
 
   return Promise.all(
     eligible.map(async (course) => {
@@ -98,7 +98,7 @@ export default function CoursesPage() {
   const inProgressIds = audit.courses.in_progress_ids;
 
   return (
-    <main className="px-6 py-12 space-y-10 max-w-6xl mx-auto">
+    <main className="px-6 py-12 space-y-10">
 
       {/* Header */}
       <div className="space-y-1">
@@ -111,13 +111,6 @@ export default function CoursesPage() {
         </p>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Credits Earned"  value={audit.credits.completed?.toString() ?? '—'} />
-        <StatCard label="In Progress"     value={audit.credits.in_progress?.toString() ?? '—'} />
-        <StatCard label="Still Needed"    value={audit.credits.needed?.toString() ?? '—'} />
-        <StatCard label="Missing Gen-Eds" value={missingGenEds.length.toString()} />
-      </div>
 
       {/* Missing gen-ed badges */}
       {missingGenEds.length > 0 && (
@@ -133,55 +126,6 @@ export default function CoursesPage() {
         </div>
       )}
 
-      {/* Unfulfilled requirements */}
-      {audit.summary.unfulfilled_requirements.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-lg font-semibold">Unfulfilled Requirements</h2>
-          <ul className="space-y-1">
-            {audit.summary.unfulfilled_requirements.map(r => (
-              <li key={r} className="text-sm text-zinc-600 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
-                {r}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Courses by missing gen-ed */}
-      {missingGenEds.length > 0 && (
-        <div className="space-y-10">
-          <h2 className="text-lg font-semibold">Courses That Fulfill Missing Gen-Eds</h2>
-          {loading ? (
-            <p className="text-zinc-400 text-sm animate-pulse">Fetching courses and sections...</p>
-          ) : (
-            missingGenEds.map(tag => {
-              const courses = (coursesByGenEd[tag] ?? [])
-                .filter(c => !inProgressIds.includes(c.course_id));
-              return (
-                <div key={tag} className="space-y-4">
-                  <h3 className="text-base font-semibold flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-mono text-sm">{tag}</span>
-                    <span className="text-zinc-400 font-normal text-sm">
-                      {courses.length} course{courses.length !== 1 ? 's' : ''}
-                    </span>
-                  </h3>
-                  {courses.length === 0 ? (
-                    <p className="text-sm text-zinc-400">No eligible courses found.</p>
-                  ) : (
-                    <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {courses.map(course => (
-                        <CourseCard key={course.course_id} {...toCourseCardProps(course)} />
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
       <div className="pt-4 border-t border-zinc-100">
         <button
           onClick={() => router.push('/')}
@@ -194,11 +138,4 @@ export default function CoursesPage() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3">
-      <p className="text-xs text-zinc-400 mb-1">{label}</p>
-      <p className="text-sm font-semibold text-zinc-800">{value}</p>
-    </div>
-  );
-}
+
