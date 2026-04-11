@@ -8,7 +8,7 @@ async function get<T>(path: string, cache: RequestCache = 'force-cache'): Promis
 
 export const umdio = {
   courses: {
-    list: (params?: { dept_id?: string; semester?: string; gen_ed?: string; page?: number; per_page?: number }) => {
+    list: (params?: { dept_id?: string; semester?: string; gen_ed?: string; credits?: string; page?: number; per_page?: number }) => {
       const q = new URLSearchParams(params as Record<string, string>).toString();
       return get<Course[]>(`/courses${q ? `?${q}` : ''}`);
     },

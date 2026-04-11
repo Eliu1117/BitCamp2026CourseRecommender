@@ -1,17 +1,37 @@
+<<<<<<< HEAD
 import { umdio } from '@/lib/umdio';
 import AuditUploader from '@/app/components/AuditUploader';
+=======
+import { getAllCoursesByAttribute, getAllCoursesByGenEd, getCoursesByMultipleGenEds} from '@/lib/courses';
+>>>>>>> 877230a (Course filtering)
 
 export default async function Home() {
-  const [courses, departments] = await Promise.all([
-    umdio.courses.list({ dept_id: 'CMSC', per_page: 10 }),
-    umdio.courses.departments(),
+
+  const [cmsccourses, scisdshu, dssp] = await Promise.all([
+    getAllCoursesByAttribute({ dept_id: 'CMSC' }),
+    getCoursesByMultipleGenEds('SCIS DSHU'),
+    getAllCoursesByGenEd('DSSP'),
   ]);
 
   return (
+
     <main className="max-w-3xl mx-auto px-6 py-12 space-y-10">
       <h1 className="text-4xl font-bold">Better Jupiterp</h1>
       <AuditUploader />
-      <h2 className="text-2xl font-semibold mb-4">CMSC Courses</h2>
+      <div className="grid grid-cols-3 gap-8">
+        <CourseList title="All CS Courses" courses={cmsccourses} />
+        <CourseList title="SCIS and DSHU Courses" courses={scisdshu} />
+        <CourseList title="DSSP Courses" courses={dssp} />
+      </div>
+    </main>
+  );
+}
+
+function CourseList({ title, courses }: { title: string; courses: Awaited<ReturnType<typeof getAllCoursesByAttribute>> }) {
+  return (
+    <div>
+      <h1 className="text-2xl font-semibold mb-4">{title}</h1>
+>>>>>>> 877230a (Course filtering)
       <ul className="space-y-3">
         {courses.map((course) => (
           <li key={course.course_id} className="rounded-lg border p-4">
@@ -21,6 +41,6 @@ export default async function Home() {
           </li>
         ))}
       </ul>
-    </main>
+    </div>
   );
 }
