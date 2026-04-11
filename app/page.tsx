@@ -1,9 +1,6 @@
-<<<<<<< HEAD
 import { umdio } from '@/lib/umdio';
 import AuditUploader from '@/app/components/AuditUploader';
-=======
 import { getAllCoursesByAttribute, getAllCoursesByGenEd, getCoursesByMultipleGenEds} from '@/lib/courses';
->>>>>>> 877230a (Course filtering)
 
 export default async function Home() {
 
@@ -15,7 +12,7 @@ export default async function Home() {
 
   return (
 
-    <main className="max-w-3xl mx-auto px-6 py-12 space-y-10">
+    <main className="px-6 py-12 space-y-10">
       <h1 className="text-4xl font-bold">Better Jupiterp</h1>
       <AuditUploader />
       <div className="grid grid-cols-3 gap-8">
@@ -31,7 +28,6 @@ function CourseList({ title, courses }: { title: string; courses: Awaited<Return
   return (
     <div>
       <h1 className="text-2xl font-semibold mb-4">{title}</h1>
->>>>>>> 877230a (Course filtering)
       <ul className="space-y-3">
         {courses.map((course) => (
           <li key={course.course_id} className="rounded-lg border p-4">
