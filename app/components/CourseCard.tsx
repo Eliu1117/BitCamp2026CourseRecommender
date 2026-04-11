@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import CourseDetailPopup from './CourseDetailPopup';
+import type { JupSection } from '@/lib/api';
 
 export type Prof = {
   name: string;
@@ -15,19 +16,22 @@ export type CourseCardProps = {
   title: string;
   description: string;
   profs: Prof[];
-  /** Course codes for which this course is a prerequisite (downstream / “next” courses). */
+  /** Course codes for which this course is a prerequisite (downstream / "next" courses). */
   unlocks: string[];
+  sections?: JupSection[];
+  genEdTags?: string[];
 };
 
 export default function CourseCard(props: CourseCardProps) {
-  const { courseNumber, credits, title, profs, unlocks } = props;
+  const { courseNumber, credits, title, profs, unlocks, sections = [], genEdTags = [] } = props;
   const [popupOpen, setPopupOpen] = useState(false);
 
-  const n = profs.length;
-  const avgStars =
-    n > 0 ? profs.reduce((sum, p) => sum + p.stars, 0) / n : null;
-  const avgGpa =
-    n > 0 ? profs.reduce((sum, p) => sum + p.gpa, 0) / n : null;
+  const n = profs.filter(p => p.stars > 0).length;
+  const avgStars = n > 0 ? profs.filter(p => p.stars > 0).reduce((sum, p) => sum + p.stars, 0) / n : null;
+  const avgGpa   = n > 0 ? profs.filter(p => p.gpa   > 0).reduce((sum, p) => sum + p.gpa,   0) / n : null;
+
+  const openSeats = sections.reduce((sum, s) => sum + s.open_seats, 0);
+  const totalSeats = sections.reduce((sum, s) => sum + s.total_seats, 0);
 
   return (
     <>
@@ -47,21 +51,42 @@ export default function CourseCard(props: CourseCardProps) {
           </div>
           <h2 className="text-lg font-semibold">{title}</h2>
           <p className="text-sm text-zinc-500">{credits} cr</p>
+          {genEdTags.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-1">
+              {genEdTags.map(tag => (
+                <span key={tag} className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-mono text-xs">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </header>
+
         <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
           <div>
             <dt className="text-zinc-500">Avg. stars</dt>
-            <dd className="font-medium">
-              {avgStars != null ? avgStars.toFixed(1) : '—'}
-            </dd>
+            <dd className="font-medium">{avgStars != null ? avgStars.toFixed(1) : '—'}</dd>
           </div>
           <div>
             <dt className="text-zinc-500">Avg. GPA</dt>
-            <dd className="font-medium">
-              {avgGpa != null ? avgGpa.toFixed(2) : '—'}
-            </dd>
+            <dd className="font-medium">{avgGpa != null ? avgGpa.toFixed(2) : '—'}</dd>
           </div>
+          {sections.length > 0 && (
+            <>
+              <div>
+                <dt className="text-zinc-500">Sections</dt>
+                <dd className="font-medium">{sections.length}</dd>
+              </div>
+              <div>
+                <dt className="text-zinc-500">Open seats</dt>
+                <dd className={`font-medium ${openSeats > 0 ? 'text-green-600' : 'text-red-500'}`}>
+                  {openSeats}/{totalSeats}
+                </dd>
+              </div>
+            </>
+          )}
         </dl>
+
         <button
           type="button"
           onClick={() => setPopupOpen(true)}
@@ -71,6 +96,7 @@ export default function CourseCard(props: CourseCardProps) {
           <span className="font-serif italic">i</span>
         </button>
       </article>
+
       <CourseDetailPopup
         open={popupOpen}
         onClose={() => setPopupOpen(false)}
