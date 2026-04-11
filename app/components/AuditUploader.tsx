@@ -3,11 +3,10 @@
 import { useState, useRef } from 'react';
 import { parseAudit, type AuditResult } from '@/lib/parseAudit';
 
-type Tab = 'upload' | 'paste';
+type Tab = 'upload';
 
 export default function AuditUploader() {
   const [tab, setTab] = useState<Tab>('upload');
-  const [pastedHtml, setPastedHtml] = useState('');
   const [result, setResult] = useState<AuditResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -17,7 +16,6 @@ export default function AuditUploader() {
     setResult(null);
     setError(null);
     setFileName(null);
-    setPastedHtml('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
@@ -39,27 +37,18 @@ export default function AuditUploader() {
     runParser(html);
   }
 
-  function handlePasteSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!pastedHtml.trim()) {
-      setError('Please paste some HTML first.');
-      return;
-    }
-    runParser(pastedHtml);
-  }
-
   return (
     <section className="rounded-xl border border-zinc-200 bg-zinc-50 p-6 space-y-4">
       <div>
         <h2 className="text-xl font-semibold">Degree Audit Parser</h2>
         <p className="text-sm text-zinc-500 mt-1">
-          Upload or paste the HTML of your UMD degree audit to extract a structured summary.
+          Upload the HTML of your UMD degree audit to extract a structured summary.
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-zinc-200">
-        {(['upload', 'paste'] as Tab[]).map((t) => (
+        {(['upload'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => { setTab(t); reset(); }}
@@ -69,7 +58,7 @@ export default function AuditUploader() {
                 : 'text-zinc-500 hover:text-zinc-700'
             }`}
           >
-            {t === 'upload' ? 'Upload File' : 'Paste HTML'}
+            {'Upload File'}
           </button>
         ))}
       </div>
@@ -99,25 +88,6 @@ export default function AuditUploader() {
             onChange={handleFileChange}
           />
         </div>
-      )}
-
-      {/* Paste */}
-      {tab === 'paste' && (
-        <form onSubmit={handlePasteSubmit} className="space-y-3">
-          <textarea
-            value={pastedHtml}
-            onChange={(e) => setPastedHtml(e.target.value)}
-            placeholder="Paste the full HTML source of your degree audit here…"
-            rows={8}
-            className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-700 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-400 resize-y"
-          />
-          <button
-            type="submit"
-            className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 transition-colors"
-          >
-            Parse Audit
-          </button>
-        </form>
       )}
 
       {/* Error */}
