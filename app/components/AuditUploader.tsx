@@ -102,6 +102,20 @@ export default function AuditUploader() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-zinc-700">Parsed Result</h3>
+            <div className="flex gap-2">
+              <button
+                onClick={() => downloadJson(result, `audit-${result.student.name ?? 'result'}.json`)}
+                className="text-xs text-zinc-500 hover:text-zinc-800 transition-colors border border-zinc-200 rounded px-2 py-1"
+              >
+                Download JSON
+              </button>
+              <button onClick={reset} className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors">
+                Clear
+              </button>
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-zinc-700">Parsed Result</h3>
             <button
               onClick={reset}
               className="text-xs text-zinc-400 hover:text-zinc-600 transition-colors"
@@ -113,9 +127,9 @@ export default function AuditUploader() {
           {/* Summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard label="Student" value={result.student.name ?? '—'} />
-            <StatCard label="Credits Earned" value={result.credits.earned?.toString() ?? '—'} />
+            <StatCard label="Credits Earned" value={result.credits.completed?.toString() ?? '—'} />
             <StatCard label="In Progress" value={result.credits.in_progress?.toString() ?? '—'} />
-            <StatCard label="Still Needed" value={result.credits.still_needed?.toString() ?? '—'} />
+            <StatCard label="Still Needed"   value={result.credits.needed?.toString() ?? '—'} />
           </div>
 
           {/* Full JSON */}
@@ -140,4 +154,14 @@ function StatCard({ label, value }: { label: string; value: string }) {
       <p className="text-sm font-semibold text-zinc-800 truncate">{value}</p>
     </div>
   );
+}
+
+function downloadJson(data: AuditResult, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
