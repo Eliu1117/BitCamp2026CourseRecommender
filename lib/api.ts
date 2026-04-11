@@ -1,5 +1,25 @@
 const BASE = 'https://api.umd.io/v1';
+const JUPITERP = 'https://api.jupiterp.com';
 
+export interface JupSection {
+  course_code: string;
+  sec_code: string;
+  instructors: string[];
+  meetings: string[];      // "MWF-1:00pm-1:50pm-CSI-1115"
+  open_seats: number;
+  total_seats: number;
+  waitlist: number;
+  holdfile: string | null;
+}
+
+export async function getJupSections(courseCode: string, semester = '202608'): Promise<JupSection[]> {
+  const res = await fetch(
+    `${JUPITERP}/v0/sections?courseCodes=${courseCode}&semester=${semester}`,
+    { cache: 'no-store' } 
+  );
+  if (!res.ok) return [];
+  return res.json();
+}
 async function get<T>(path: string, cache: RequestCache = 'force-cache'): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache });
   if (!res.ok) throw new Error(`umd.io error ${res.status} on ${path}`);
@@ -9,13 +29,23 @@ async function get<T>(path: string, cache: RequestCache = 'force-cache'): Promis
 export const umdio = {
   courses: {
     list: (params?: { dept_id?: string; semester?: string; gen_ed?: string; credits?: string; page?: number; per_page?: number }) => {
-      const q = new URLSearchParams(params as Record<string, string>).toString();
-      return get<Course[]>(`/courses${q ? `?${q}` : ''}`);
-    },
+        const cleaned = Object.fromEntries(
+          Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== null)
+        );
+        const q = new URLSearchParams(cleaned as Record<string, string>).toString();
+        return get<Course[]>(`/courses${q ? `?${q}` : ''}`);
+      },
     get: (courseId: string) => get<Course[]>(`/courses/${courseId}`),
     sections: (courseId: string) => get<Section[]>(`/courses/${courseId}/sections`),
     semesters: () => get<string[]>('/courses/semesters'),
     departments: () => get<string[]>('/courses/departments'),
+    sectionsList: (params: { course_id: string; semester?: string; per_page?: number; page?: number }) => {
+        const cleaned = Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+        );
+        const q = new URLSearchParams(cleaned as Record<string, string>).toString();
+        return get<Section[]>(`/courses/sections?${q}`);
+      },
   },
   professors: {
     list: (params?: { name?: string; course_id?: string }) => {

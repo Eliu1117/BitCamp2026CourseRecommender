@@ -1,19 +1,21 @@
-import { umdio, Course } from '@/lib/umdio';
+import { umdio, Course, getJupSections } from '@/lib/api';
 
+export const CURRENTSEM = '202601'
 export async function getAllCoursesByAttribute(params?: {dept_id?: string; semester?: number; credits?: number; }): Promise<Course[]> {
     const results: Course[] = [];
     let page = 1;
     const MAX_PAGES = 50;
-      const query: Record<string, string | number> = { per_page: 100 };
-    if (params?.dept_id)  query.dept_id  = params.dept_id;
-    if (params?.semester) query.semester = params.semester.toString();
-    if (params?.credits)  query.credits  = params.credits.toString();
-  
     while (page <= MAX_PAGES) {
-      const batch = await umdio.courses.list({ ...query, page });
-      results.push(...batch);
-      if (batch.length < 100) break;
-      page++;
+        const batch = await umdio.courses.list({
+          ...(params?.dept_id   && { dept_id:  params.dept_id }),
+          ...(params?.semester  && { semester: params.semester.toString() }),
+          ...(params?.credits   && { credits:  params.credits.toString() }),
+          per_page: 100,
+          page,
+        });
+        results.push(...batch);
+        if (batch.length < 100) break;
+        page++
     }
     return results;
   }
@@ -45,4 +47,13 @@ export async function getAllCoursesByAttribute(params?: {dept_id?: string; semes
     const pool = await getAllCoursesByGenEd(tagList[0]);
     return pool.filter(course => courseMatchesGenEds(course, tags));
   }
+
+export async function getSectionsByCourse(course_id: string, semester: string) {
+    try {
+        return await getJupSections(course_id, semester);
+      } catch {
+        return [];  
+      }
+    }
+
   
