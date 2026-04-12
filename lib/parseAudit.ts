@@ -44,6 +44,23 @@ export interface RequirementBlock {
   subrequirements: SubrequirementBlock[];
 }
 
+export interface LowerLevelSubreq {
+  number: string;
+  title: string;
+  status: Status;
+  courses_taken: string[];
+  needs: string | null;
+  select_from: string[];
+}
+
+export interface UpperLevelArea {
+  name: string;
+  status: Status;
+  courses_taken: string[];
+  courses_in_progress: string[];
+  select_from: string[];
+}
+
 export interface AuditResult {
   student: {
     name: string | null;
@@ -65,6 +82,30 @@ export interface AuditResult {
     all: CourseEntry[];
     completed_ids: string[];
     in_progress_ids: string[];
+  };
+  upper_level_concentration: {
+    status: Status;
+    credits_needed: number | null;
+    note: string;
+  };
+  lower_level_requirements: {
+    status: Status;
+    subrequirements: LowerLevelSubreq[];
+  };
+  upper_level_requirements: {
+    status: Status;
+    description: string;
+    areas_fulfilled: number;
+    three_areas_met: boolean;
+    areas: UpperLevelArea[];
+  };
+  cmsc_electives: {
+    status: Status;
+    description: string;
+    credits_needed: number | null;
+    excluded: string[];
+    courses_taken: string[];
+    courses_in_progress: string[];
   };
   gen_ed: {
     status: Status;
@@ -128,8 +169,12 @@ export function parseAudit(html: string): AuditResult {
   }
 
   function extractSelectFrom(container: Element): string[] {
-    return Array.from(container.querySelectorAll('.selectcourses .course'))
-      .map(el => txt(el.querySelector('.number')).replace(/\s+/g, ''));
+    return Array.from(container.querySelectorAll('.selectcourses .course[department][number]'))
+      .map(el => {
+        const dept = el.getAttribute('department') ?? '';
+        const num = el.getAttribute('number') ?? '';
+        return `${dept} ${num}`.trim();
+      });
   }
 
   function extractNeeds(container: Element): string | null {
@@ -297,6 +342,97 @@ export function parseAudit(html: string): AuditResult {
       subrequirements,
     });  }
 
+  // Helper: find a requirement block by its pseudo (rname)
+  function findReqByPseudo(p: string) {
+    return requirementBlocks.find(r => r.pseudo === p);
+  }
+
+  // ── 5a. Upper Level Concentration (CMSC-CONC) ──
+
+  const concReq = findReqByPseudo('CMSC-CONC');
+  const concSub = concReq?.subrequirements[0];
+  const upper_level_concentration: AuditResult['upper_level_concentration'] = {
+    status: concReq?.status ?? 'unknown',
+    credits_needed: concSub?.needs
+      ? parseFloat(concSub.needs.match(/[\d.]+/)?.[0] ?? '') || null
+      : null,
+    note: concSub?.title ?? '',
+  };
+
+  // ── 5b. Lower Level Requirements (CMSC-LLRQ) ──
+
+  const llReq = findReqByPseudo('CMSC-LLRQ');
+  const lower_level_requirements: AuditResult['lower_level_requirements'] = {
+    status: llReq?.status ?? 'unknown',
+    subrequirements: (llReq?.subrequirements ?? []).map(s => ({
+      number: s.title.match(/^\d+\)/) ? s.title.match(/^\d+\)/)?.[0] ?? '' : '',
+      title: s.title,
+      status: s.status,
+      courses_taken: s.courses_taken.map(c => c.course_id),
+      needs: s.needs,
+      select_from: s.select_from,
+    })),
+  };
+
+  // ── 5c. Upper Level Requirements (CMSC-ULRQ) ──
+
+  const ulReq = findReqByPseudo('CMSC-ULRQ');
+  const ulSubs = ulReq?.subrequirements ?? [];
+
+  // First subreq with no number is the description banner
+  const ulDescription = ulSubs.find(s => !s.pseudo || s.pseudo === '')?.title ?? '';
+
+  // Numbered subreqs are the 5 areas
+  const ulAreas: UpperLevelArea[] = ulSubs
+    .filter(s => s.pseudo && s.pseudo !== '')
+    .map(s => {
+      const completed = s.courses_taken.filter(c => !c.in_progress).map(c => c.course_id);
+      const ip = s.courses_taken.filter(c => c.in_progress).map(c => c.course_id);
+      return {
+        name: s.title,
+        status: s.status,
+        courses_taken: completed,
+        courses_in_progress: ip,
+        select_from: s.select_from,
+      };
+    });
+
+  const areasFulfilled = ulAreas.filter(a => a.status === 'complete' || a.status === 'in_progress').length;
+
+  const upper_level_requirements: AuditResult['upper_level_requirements'] = {
+    status: ulReq?.status ?? 'unknown',
+    description: ulDescription,
+    areas_fulfilled: areasFulfilled,
+    three_areas_met: areasFulfilled >= 3,
+    areas: ulAreas,
+  };
+
+  // ── 5d. CMSC Electives (CMSC-ELEC) ──
+
+  const elecReq = findReqByPseudo('CMSC-ELEC');
+  const elecSub = elecReq?.subrequirements[0];
+
+  // Parse the title to get description and excluded courses
+  const elecTitleRaw = elecSub?.title ?? '';
+  const elecTitleParts = elecTitleRaw.split(/Not eligible:/i);
+  const elecDescription = elecTitleParts[0]?.trim() ?? '';
+  const excludedRaw = elecTitleParts[1] ?? '';
+  const excluded = excludedRaw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(s => /^\d+$/.test(s) ? `CMSC${s}` : s.replace(/\s+/g, ''));
+
+  const cmsc_electives: AuditResult['cmsc_electives'] = {
+    status: elecReq?.status ?? 'unknown',
+    description: elecDescription,
+    credits_needed: elecSub?.needs
+      ? parseFloat(elecSub.needs.match(/[\d.]+/)?.[0] ?? '') || null
+      : null,
+    excluded,
+    courses_taken: (elecSub?.courses_taken ?? []).filter(c => !c.in_progress).map(c => c.course_id),
+    courses_in_progress: (elecSub?.courses_taken ?? []).filter(c => c.in_progress).map(c => c.course_id),
+  };
 
   const genEdReqs = requirementBlocks.filter(r => r.category === 'Gen_Education');
 
@@ -380,6 +516,10 @@ export function parseAudit(html: string): AuditResult {
       completed_ids: completedCourses.map(c => c.course_id),
       in_progress_ids: inProgressCourses.map(c => c.course_id),
     },
+    upper_level_concentration,
+    lower_level_requirements,
+    upper_level_requirements,
+    cmsc_electives,
     gen_ed: genEd,
     requirements: requirementBlocks,
     summary: {
