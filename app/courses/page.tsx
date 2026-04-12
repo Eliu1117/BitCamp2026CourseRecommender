@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { type AuditResult } from '@/lib/parseAudit';
 import { type Course, type JupSection } from '@/lib/api';
+import { removeIneligibleCourses } from '@/lib/courses';
 import CourseCard, { type CourseCardProps } from '@/app/components/CourseCard';
 
 const UMDIO = 'https://api.umd.io/v1';
@@ -14,14 +15,16 @@ interface CourseWithSections extends Omit<Course, 'sections'> {
   sections: JupSection[];
 }
 
-async function fetchCoursesForGenEd(tag: string, completedIds: string[]): Promise<CourseWithSections[]> {
+async function fetchCoursesForGenEd(
+  tag: string,
+  completedIds: string[],
+  inProgressIds: string[],
+): Promise<CourseWithSections[]> {
   const res = await fetch(`${UMDIO}/courses?gen_ed=${tag}&per_page=50`);
   if (!res.ok) return [];
   const courses: Course[] = await res.json();
 
-  const eligible = courses
-    .filter(c => !completedIds.includes(c.course_id))
-
+  const eligible = removeIneligibleCourses(courses, completedIds, inProgressIds);
 
   return Promise.all(
     eligible.map(async (course) => {
@@ -69,6 +72,7 @@ export default function CoursesPage() {
 
     const missingGenEds = parsed.gen_ed.unfulfilled;
     const completedIds = parsed.courses.completed_ids;
+    const inProgressIds = parsed.courses.in_progress_ids;
 
     if (missingGenEds.length === 0) {
       setLoading(false);
@@ -77,7 +81,7 @@ export default function CoursesPage() {
 
     Promise.all(
       missingGenEds.map(async (tag) => {
-        const courses = await fetchCoursesForGenEd(tag, completedIds);
+        const courses = await fetchCoursesForGenEd(tag, completedIds, inProgressIds);
         return [tag, courses] as [string, CourseWithSections[]];
       })
     ).then((entries) => {
