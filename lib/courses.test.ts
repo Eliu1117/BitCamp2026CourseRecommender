@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Course } from "@/lib/api";
 import {
+  countGenEdTagsSatisfied,
   getCSCourseTier,
   removeIneligibleCourses,
   sortCSCourses,
+  sortGenEdCourses,
 } from "@/lib/courses";
 
 function emptyRelationships(
@@ -163,5 +165,58 @@ describe("sortCSCourses / getCSCourseTier", () => {
     ];
     const { lower } = sortCSCourses(items, { catalogForUnlocks: catalog });
     expect(lower.map((c) => c.course_id)).toEqual(["CMSC132", "CMSC131"]);
+  });
+});
+
+describe("sortGenEdCourses / countGenEdTagsSatisfied", () => {
+  it("counts how many missing tags a course offers (case-insensitive)", () => {
+    const c = makeCourse("X", null, { gen_ed: [["dshu", "SCIS"]] });
+    expect(countGenEdTagsSatisfied(c, ["DSHU"])).toBe(1);
+    expect(countGenEdTagsSatisfied(c, ["DSHU", "SCIS"])).toBe(2);
+  });
+
+  it("parses compound missing-tag strings on whitespace", () => {
+    const c = makeCourse("X", null, { gen_ed: [["DSHU"], ["SCIS"]] });
+    expect(countGenEdTagsSatisfied(c, ["SCIS DSHU"])).toBe(2);
+  });
+
+  it("sorts by satisfied missing-tag count descending", () => {
+    const missing = ["DSHU", "SCIS"];
+    const one = makeCourse("ONE", null, { gen_ed: [["DSHU"]] });
+    const two = makeCourse("TWO", null, { gen_ed: [["DSHU"], ["SCIS"]] });
+    const out = sortGenEdCourses([one, two], missing);
+    expect(out.map((c) => c.course_id)).toEqual(["TWO", "ONE"]);
+  });
+
+  it("breaks ties with stars then gpa", () => {
+    const missing = ["DSHU"];
+    const items = [
+      {
+        ...makeCourse("LOW", null, { gen_ed: [["DSHU"]] }),
+        profs: [{ stars: 3, gpa: 3.5 }],
+      },
+      {
+        ...makeCourse("HIGH", null, { gen_ed: [["DSHU"]] }),
+        profs: [{ stars: 5, gpa: 2.0 }],
+      },
+    ];
+    const out = sortGenEdCourses(items, missing);
+    expect(out.map((c) => c.course_id)).toEqual(["HIGH", "LOW"]);
+  });
+
+  it("uses gpa when stars tie", () => {
+    const missing = ["DSHU"];
+    const items = [
+      {
+        ...makeCourse("A", null, { gen_ed: [["DSHU"]] }),
+        profs: [{ stars: 4, gpa: 2.0 }],
+      },
+      {
+        ...makeCourse("B", null, { gen_ed: [["DSHU"]] }),
+        profs: [{ stars: 4, gpa: 3.5 }],
+      },
+    ];
+    const out = sortGenEdCourses(items, missing);
+    expect(out.map((c) => c.course_id)).toEqual(["B", "A"]);
   });
 });
