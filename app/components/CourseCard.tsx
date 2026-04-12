@@ -32,6 +32,8 @@ export type CourseCardProps = {
     /** Jupiter `meetings` strings (e.g. days-time-room) for the chosen section. */
     meetings: string[];
   }) => void;
+  /** PlanetTerp course average GPA when the parent already fetched it (skips duplicate course API call). */
+  planetTerpCourseGpa?: number;
 };
 
 export default function CourseCard({
@@ -45,34 +47,61 @@ export default function CourseCard({
   unlocks,
   sections = [],
   genEdTags = [],
+  planetTerpCourseGpa,
 }: CourseCardProps) {
   const [popupOpen, setPopupOpen] = useState(false);
 
   const [courseGpa, setCourseGpa] = useState<number | null>(null);
   const [avgStars, setAvgStars] = useState<number | null>(null);
 
+  const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
+
+  useEffect(() => {
+    setCourseGpa(null);
+    setAvgStars(null);
+  }, [courseNumber]);
+
   useEffect(() => {
     let cancelled = false;
-
-    getPlanetTerpCourse(courseNumber).then(data => {
-      if (!cancelled && data?.average_gpa != null) setCourseGpa(data.average_gpa);
-    });
-
-    const profNames = profs.map(p => p.name);
-    if (profNames.length > 0) {
-      Promise.all(profNames.map(getPlanetTerpProfessor)).then(results => {
+    if (planetTerpCourseGpa != null && planetTerpCourseGpa > 0) {
+      setCourseGpa(planetTerpCourseGpa);
+    } else {
+      getPlanetTerpCourse(courseNumber).then((data) => {
         if (cancelled) return;
-        const ratings = results
-          .map(r => r?.average_rating)
-          .filter((v): v is number => v != null && v > 0);
-        if (ratings.length > 0) {
-          setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
-        }
+        const g = data?.average_gpa;
+        if (g != null && g > 0) setCourseGpa(g);
+        else setCourseGpa(null);
       });
     }
+    return () => {
+      cancelled = true;
+    };
+  }, [courseNumber, planetTerpCourseGpa]);
 
-    return () => { cancelled = true; };
-  }, [courseNumber, profs]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!profNamesKey) {
+      setAvgStars(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const profNames = profNamesKey.split('\0');
+    Promise.all(profNames.map(getPlanetTerpProfessor)).then((results) => {
+      if (cancelled) return;
+      const ratings = results
+        .map((r) => r?.average_rating)
+        .filter((v): v is number => v != null && v > 0);
+      if (ratings.length > 0) {
+        setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
+      } else {
+        setAvgStars(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [courseNumber, profNamesKey]);
 
   const openSeats = sections.reduce((sum, s) => sum + s.open_seats, 0);
   const totalSeats = sections.reduce((sum, s) => sum + s.total_seats, 0);

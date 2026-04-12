@@ -159,7 +159,7 @@ export interface SortedCSCourses<T> {
   other: T[];
 }
 
-function normalizeCourseId(id: string): string {
+export function normalizeCourseId(id: string): string {
   return id.replace(/\s+/g, '').toUpperCase();
 }
 
@@ -289,6 +289,32 @@ export function sortCSCourses<T extends SortableCSCourse>(
   return buckets;
 }
 
+/**
+ * Re-sorts each CS bucket after PlanetTerp (or similar) course GPAs arrive: same unlock ordering,
+ * then GPA descending, then `course_id`. `gpaByCourseId` keys must be {@link normalizeCourseId} values.
+ */
+export function resortCSCoursesByUnlocksAndGpa<T extends SortableCSCourse>(
+  buckets: SortedCSCourses<T>,
+  catalogForUnlocks: Course[],
+  gpaByCourseId: Map<string, number>,
+): SortedCSCourses<T> {
+  const unlockCounts = buildUnlockCounts(catalogForUnlocks);
+  const enrichAndSort = (items: T[]): T[] => {
+    const enriched = items.map((item) => {
+      const g = gpaByCourseId.get(normalizeCourseId(item.course_id));
+      if (g == null || !(g > 0)) return item;
+      return { ...item, profs: [{ stars: 0, gpa: g }] };
+    });
+    return sortCSCourseTier(enriched, unlockCounts);
+  };
+  return {
+    lower: enrichAndSort(buckets.lower),
+    upper: enrichAndSort(buckets.upper),
+    electives: enrichAndSort(buckets.electives),
+    other: enrichAndSort(buckets.other),
+  };
+}
+
 /** Minimal shape for `sortGenEdCourses` (works with `Course` or `CourseWithSections`-style rows). */
 export type GenEdSortable = Pick<Course, 'course_id' | 'gen_ed'> & {
   profs?: { stars: number; gpa: number }[];
@@ -332,6 +358,22 @@ export function sortGenEdCourses<T extends GenEdSortable>(courses: T[], genEdTag
     if (gb !== ga) return gb - ga;
     return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
   });
+}
+
+/**
+ * Re-runs gen-ed sort using PlanetTerp course GPAs when available (map keys: {@link normalizeCourseId}).
+ */
+export function sortGenEdCoursesWithPlanetTerpGpa<T extends GenEdSortable>(
+  courses: T[],
+  genEdTags: string[],
+  gpaByCourseId: Map<string, number>,
+): T[] {
+  const enriched = courses.map((c) => {
+    const g = gpaByCourseId.get(normalizeCourseId(c.course_id));
+    if (g == null || !(g > 0)) return c;
+    return { ...c, profs: [{ stars: 0, gpa: g }] };
+  });
+  return sortGenEdCourses(enriched, genEdTags);
 }
 
 /** Picks from the plan (e.g. courses/page) used to block overlapping meeting times. */

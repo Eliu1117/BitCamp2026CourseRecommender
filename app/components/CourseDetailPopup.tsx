@@ -1,10 +1,9 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
-import { formatJupiterMeeting, type JupSection } from '@/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { formatJupiterMeeting, getPlanetTerpProfessor, type JupSection } from '@/lib/api';
 import { sectionConflictsOccupiedPlan } from '@/lib/courses';
 import type { CourseCardProps } from './CourseCard';
-import { getPlanetTerpProfessor } from '@/lib/api';
 
 export type CourseDetailPopupProps = Omit<CourseCardProps, 'onPlanSectionSelect'> & {
   open: boolean;
@@ -25,10 +24,14 @@ export default function CourseDetailPopup({
   unlocks,
   sections = [],
 }: CourseDetailPopupProps) {
+  const [profRatings, setProfRatings] = useState<Record<string, number | null>>({});
+
   const planBlocksOtherCourses = useMemo(
     () => (occupiedPlan?.length ?? 0) > 0,
     [occupiedPlan],
   );
+
+  const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
 
   useEffect(() => {
     if (!open) return;
@@ -40,8 +43,12 @@ export default function CourseDetailPopup({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (!open || profs.length === 0) return;
+    if (!open || profs.length === 0) {
+      setProfRatings({});
+      return;
+    }
     let cancelled = false;
+    setProfRatings({});
 
     Promise.all(
       profs.map(async (p) => {
@@ -53,8 +60,10 @@ export default function CourseDetailPopup({
       setProfRatings(Object.fromEntries(entries));
     });
 
-    return () => { cancelled = true; };
-  }, [open, profs]);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, profNamesKey]);
 
   if (!open) return null;
 

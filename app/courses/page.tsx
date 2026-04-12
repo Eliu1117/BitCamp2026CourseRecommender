@@ -3,17 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { type AuditResult } from '@/lib/parseAudit';
-import { formatJupiterMeeting, type Course, type JupSection } from '@/lib/api';
+import { formatJupiterMeeting, getPlanetTerpCourse, type Course, type JupSection } from '@/lib/api';
 import {
   getAllCoursesByAttribute,
   getAllCoursesByGenEd,
   getDownstreamCourseIds,
+  normalizeCourseId,
   removeCoursesWithNoOpenSeats,
   removeGraduateLevelCourses,
   removeIneligibleCourses,
   removeOccupiedTimes,
+  resortCSCoursesByUnlocksAndGpa,
   sortCSCourses,
   sortGenEdCourses,
+  sortGenEdCoursesWithPlanetTerpGpa,
   type SortedCSCourses,
 } from '@/lib/courses';
 import CourseCard, { type CourseCardProps } from '@/app/components/CourseCard';
@@ -119,6 +122,21 @@ async function loadSortedCSCoursesWithSections(
   };
 }
 
+function collectNormalizedCourseIds(
+  buckets: SortedCSCourses<CourseWithSections>,
+  genEdMap: Record<string, CourseWithSections[]>,
+): string[] {
+  const s = new Set<string>();
+  for (const c of buckets.lower) s.add(normalizeCourseId(c.course_id));
+  for (const c of buckets.upper) s.add(normalizeCourseId(c.course_id));
+  for (const c of buckets.electives) s.add(normalizeCourseId(c.course_id));
+  for (const c of buckets.other) s.add(normalizeCourseId(c.course_id));
+  for (const list of Object.values(genEdMap)) {
+    for (const c of list) s.add(normalizeCourseId(c.course_id));
+  }
+  return [...s];
+}
+
 // #region agent log
 let __agentUnlockPropsLogCount = 0;
 // #endregion
@@ -126,6 +144,7 @@ let __agentUnlockPropsLogCount = 0;
 function toCourseCardProps(
   course: CourseWithSections,
   cmscCatalog: Course[] | null,
+  planetTerpGpaByCourse: Record<string, number>,
 ): CourseCardProps {
   const unlocks =
     cmscCatalog && cmscCatalog.length > 0
@@ -158,6 +177,8 @@ function toCourseCardProps(
   const uniqueInstructors = Array.from(
     new Set(course.sections.flatMap(s => s.instructors))
   );
+  const nid = normalizeCourseId(course.course_id);
+  const batchGpa = planetTerpGpaByCourse[nid];
   return {
     courseNumber: course.course_id,
     credits: parseFloat(course.credits) || 0,
@@ -167,6 +188,8 @@ function toCourseCardProps(
     unlocks,
     sections: course.sections,
     genEdTags: (course.gen_ed ?? []).flat().filter(Boolean),
+    planetTerpCourseGpa:
+      batchGpa != null && batchGpa > 0 ? batchGpa : undefined,
   };
 }
 
@@ -191,6 +214,9 @@ export default function CoursesPage() {
   const [csCatalog, setCsCatalog] = useState<Course[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [plannedSections, setPlannedSections] = useState<PlannedSection[]>([]);
+  const [planetTerpGpaByCourse, setPlanetTerpGpaByCourse] = useState<
+    Record<string, number>
+  >({});
 
   const onPlanSectionSelect = useCallback(
     (pick: {
@@ -286,7 +312,36 @@ export default function CoursesPage() {
       setCsBuckets(cs.buckets);
       setCsCatalog(cs.catalog);
       setCoursesByGenEd(genEdMap);
+      setPlanetTerpGpaByCourse({});
       setLoading(false);
+
+      const ids = collectNormalizedCourseIds(cs.buckets, genEdMap);
+      if (ids.length === 0) return;
+
+      Promise.all(
+        ids.map(async (nid) => {
+          const data = await getPlanetTerpCourse(nid);
+          const g = data?.average_gpa;
+          return [nid, typeof g === 'number' && g > 0 ? g : null] as const;
+        }),
+      ).then((pairs) => {
+        const map = new Map<string, number>();
+        for (const [nid, g] of pairs) {
+          if (g != null) map.set(nid, g);
+        }
+        if (map.size === 0) return;
+        setPlanetTerpGpaByCourse(Object.fromEntries(map));
+        setCsBuckets((prev) =>
+          prev ? resortCSCoursesByUnlocksAndGpa(prev, cs.catalog, map) : prev,
+        );
+        setCoursesByGenEd((prev) => {
+          const next: Record<string, CourseWithSections[]> = {};
+          for (const [tag, list] of Object.entries(prev)) {
+            next[tag] = sortGenEdCoursesWithPlanetTerpGpa(list, missingGenEds, map);
+          }
+          return next;
+        });
+      });
     });
   }, [router]);
 
@@ -412,7 +467,7 @@ export default function CoursesPage() {
                   {list.map((course) => (
                     <CourseCard
                       key={course.course_id}
-                      {...toCourseCardProps(course, csCatalog)}
+                      {...toCourseCardProps(course, csCatalog, planetTerpGpaByCourse)}
                       occupiedPlan={occupiedPicks}
                       onPlanSectionSelect={onPlanSectionSelect}
                     />
@@ -461,7 +516,7 @@ export default function CoursesPage() {
                         {top.map((course) => (
                           <CourseCard
                             key={`${tag}-${course.course_id}`}
-                            {...toCourseCardProps(course, null)}
+                            {...toCourseCardProps(course, null, planetTerpGpaByCourse)}
                             occupiedPlan={occupiedPicks}
                             onPlanSectionSelect={onPlanSectionSelect}
                           />
