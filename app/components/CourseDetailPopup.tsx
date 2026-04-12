@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react';
 import { formatJupiterMeeting, type JupSection } from '@/lib/api';
 import { sectionConflictsOccupiedPlan } from '@/lib/courses';
 import type { CourseCardProps } from './CourseCard';
+import { getPlanetTerpProfessor } from '@/lib/api';
 
 export type CourseDetailPopupProps = Omit<CourseCardProps, 'onPlanSectionSelect'> & {
   open: boolean;
@@ -37,6 +38,23 @@ export default function CourseDetailPopup({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open || profs.length === 0) return;
+    let cancelled = false;
+
+    Promise.all(
+      profs.map(async (p) => {
+        const data = await getPlanetTerpProfessor(p.name);
+        return [p.name, data?.average_rating ?? null] as const;
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setProfRatings(Object.fromEntries(entries));
+    });
+
+    return () => { cancelled = true; };
+  }, [open, profs]);
 
   if (!open) return null;
 
@@ -168,17 +186,20 @@ export default function CourseDetailPopup({
             <p className="mt-1 text-sm text-zinc-400">None listed</p>
           ) : (
             <ul className="mt-2 space-y-2 text-sm">
-              {profs.map((p) => (
-                <li
-                  key={p.name}
-                  className="rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
-                >
-                  <span className="font-medium">{p.name}</span>
-                  {p.stars > 0 && (
-                    <span className="text-zinc-500"> · {p.stars}★ · GPA {p.gpa}</span>
-                  )}
-                </li>
-              ))}
+              {profs.map((p) => {
+                const rating = profRatings[p.name];
+                return (
+                  <li
+                    key={p.name}
+                    className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                  >
+                    <span className="font-medium">{p.name}</span>
+                    <span className="text-zinc-500 tabular-nums">
+                      {rating != null ? `${rating.toFixed(1)} ★` : '—'}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

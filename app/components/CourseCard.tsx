@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import CourseDetailPopup from './CourseDetailPopup';
 import type { JupSection } from '@/lib/api';
+import { getPlanetTerpCourse, getPlanetTerpProfessor } from '@/lib/api';
 import type { OccupiedSectionPick } from '@/lib/courses';
 
 export type Prof = {
@@ -47,9 +48,31 @@ export default function CourseCard({
 }: CourseCardProps) {
   const [popupOpen, setPopupOpen] = useState(false);
 
-  const n = profs.filter(p => p.stars > 0).length;
-  const avgStars = n > 0 ? profs.filter(p => p.stars > 0).reduce((sum, p) => sum + p.stars, 0) / n : null;
-  const avgGpa   = n > 0 ? profs.filter(p => p.gpa   > 0).reduce((sum, p) => sum + p.gpa,   0) / n : null;
+  const [courseGpa, setCourseGpa] = useState<number | null>(null);
+  const [avgStars, setAvgStars] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getPlanetTerpCourse(courseNumber).then(data => {
+      if (!cancelled && data?.average_gpa != null) setCourseGpa(data.average_gpa);
+    });
+
+    const profNames = profs.map(p => p.name);
+    if (profNames.length > 0) {
+      Promise.all(profNames.map(getPlanetTerpProfessor)).then(results => {
+        if (cancelled) return;
+        const ratings = results
+          .map(r => r?.average_rating)
+          .filter((v): v is number => v != null && v > 0);
+        if (ratings.length > 0) {
+          setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
+        }
+      });
+    }
+
+    return () => { cancelled = true; };
+  }, [courseNumber, profs]);
 
   const openSeats = sections.reduce((sum, s) => sum + s.open_seats, 0);
   const totalSeats = sections.reduce((sum, s) => sum + s.total_seats, 0);
@@ -90,7 +113,7 @@ export default function CourseCard({
           </div>
           <div>
             <dt className="text-zinc-500">Avg. GPA</dt>
-            <dd className="font-medium">{avgGpa != null ? avgGpa.toFixed(2) : '—'}</dd>
+            <dd className="font-medium">{courseGpa != null ? courseGpa.toFixed(2) : '—'}</dd>
           </div>
           {sections.length > 0 && (
             <>
