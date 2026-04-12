@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { type AuditResult } from '@/lib/parseAudit';
-import { type Course, type JupSection } from '@/lib/api';
+import { formatJupiterMeeting, type Course, type JupSection } from '@/lib/api';
 import {
   getAllCoursesByAttribute,
   getAllCoursesByGenEd,
@@ -11,6 +11,7 @@ import {
   removeCoursesWithNoOpenSeats,
   removeGraduateLevelCourses,
   removeIneligibleCourses,
+  removeOccupiedTimes,
   sortCSCourses,
   sortGenEdCourses,
   type SortedCSCourses,
@@ -175,6 +176,13 @@ const CS_BUCKET_LABELS: { key: 'lower' | 'upper' | 'electives'; title: string }[
   { key: 'electives', title: 'CMSC electives (300–499)' },
 ];
 
+type PlannedSection = {
+  courseNumber: string;
+  sectionCode: string;
+  title: string;
+  meetings: string[];
+};
+
 export default function CoursesPage() {
   const router = useRouter();
   const [audit, setAudit] = useState<AuditResult | null>(null);
@@ -182,6 +190,66 @@ export default function CoursesPage() {
   const [csBuckets, setCsBuckets] = useState<SortedCSCourses<CourseWithSections> | null>(null);
   const [csCatalog, setCsCatalog] = useState<Course[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [plannedSections, setPlannedSections] = useState<PlannedSection[]>([]);
+
+  const onPlanSectionSelect = useCallback(
+    (pick: {
+      courseNumber: string;
+      title: string;
+      sectionCode: string;
+      meetings: string[];
+    }) => {
+      setPlannedSections((prev) => {
+        const i = prev.findIndex((p) => p.courseNumber === pick.courseNumber);
+        const row: PlannedSection = {
+          courseNumber: pick.courseNumber,
+          sectionCode: pick.sectionCode,
+          title: pick.title,
+          meetings: [...pick.meetings],
+        };
+        if (i >= 0) {
+          const next = [...prev];
+          next[i] = row;
+          return next;
+        }
+        return [...prev, row];
+      });
+    },
+    [],
+  );
+
+  const removePlannedCourse = useCallback((courseNumber: string) => {
+    setPlannedSections((prev) => prev.filter((p) => p.courseNumber !== courseNumber));
+  }, []);
+
+  const occupiedPicks = useMemo(
+    () =>
+      plannedSections.map((p) => ({
+        courseNumber: p.courseNumber,
+        meetings: p.meetings,
+      })),
+    [plannedSections],
+  );
+
+  const csBucketsDisplay = useMemo(() => {
+    if (!csBuckets) return null;
+    if (occupiedPicks.length === 0) return csBuckets;
+    return {
+      lower: removeOccupiedTimes(csBuckets.lower, occupiedPicks),
+      upper: removeOccupiedTimes(csBuckets.upper, occupiedPicks),
+      electives: removeOccupiedTimes(csBuckets.electives, occupiedPicks),
+      other: csBuckets.other,
+    };
+  }, [csBuckets, occupiedPicks]);
+
+  const coursesByGenEdDisplay = useMemo(() => {
+    if (occupiedPicks.length === 0) return coursesByGenEd;
+    const out: Record<string, CourseWithSections[]> = {};
+    for (const [tag, list] of Object.entries(coursesByGenEd)) {
+      out[tag] = removeOccupiedTimes(list, occupiedPicks);
+    }
+    return out;
+  }, [coursesByGenEd, occupiedPicks]);
 
   useEffect(() => {
     const raw = sessionStorage.getItem('auditResult');
@@ -233,11 +301,62 @@ export default function CoursesPage() {
   const missingGenEds = audit.gen_ed.unfulfilled;
 
   const csTotal =
-    csBuckets &&
-    csBuckets.lower.length + csBuckets.upper.length + csBuckets.electives.length;
+    csBucketsDisplay &&
+    csBucketsDisplay.lower.length +
+      csBucketsDisplay.upper.length +
+      csBucketsDisplay.electives.length;
 
   return (
-    <main className="px-6 py-12 space-y-10">
+    <main className="relative px-6 py-12 space-y-10">
+      <aside
+        className="fixed top-4 right-4 z-40 w-[min(calc(100vw-2rem),18rem)] rounded-xl border border-zinc-200 bg-white/95 p-4 text-sm shadow-lg backdrop-blur-sm dark:border-zinc-700 dark:bg-zinc-950/95"
+        aria-label="Selected course sections"
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+          Selected sections
+        </h2>
+        {plannedSections.length === 0 ? (
+          <p className="mt-2 leading-snug text-zinc-500 dark:text-zinc-400">
+            None yet. Open a course and pick a section with open seats.
+          </p>
+        ) : (
+          <ul className="mt-3 max-h-[min(50vh,20rem)] space-y-3 overflow-y-auto pr-0.5">
+            {plannedSections.map((row) => (
+              <li
+                key={row.courseNumber}
+                className="rounded-lg border border-zinc-100 p-2 dark:border-zinc-800"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    {row.courseNumber}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => removePlannedCourse(row.courseNumber)}
+                    className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
+                    aria-label={`Remove ${row.courseNumber} from selected sections`}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <p className="line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{row.title}</p>
+                <p className="mt-1 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                  {row.sectionCode}
+                </p>
+                {row.meetings.length > 0 ? (
+                  <ul className="mt-1.5 space-y-0.5 border-t border-zinc-100 pt-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+                    {row.meetings.map((m, i) => (
+                      <li key={i}>{formatJupiterMeeting(m)}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-zinc-400">No meeting times listed.</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
 
       {/* Header */}
       <div className="space-y-1">
@@ -267,18 +386,24 @@ export default function CoursesPage() {
 
       <section className="space-y-8">
         <h2 className="text-lg font-semibold">CS course recommendations</h2>
+        {occupiedPicks.length > 0 && (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Lists hide courses that only have open sections overlapping your selected meeting times
+            (M/T/W/R/F). Courses already in your selection stay visible.
+          </p>
+        )}
         {loading && (
           <p className="text-sm text-zinc-500">Loading CMSC catalog and sections…</p>
         )}
-        {!loading && csBuckets && csTotal === 0 && (
+        {!loading && csBucketsDisplay && csTotal === 0 && (
           <p className="text-sm text-zinc-500">
             No CMSC courses to show: prerequisites and your audit already rule some out, and we only list undergraduate courses (below 500) with at least one open seat this term.
           </p>
         )}
         {!loading &&
-          csBuckets &&
+          csBucketsDisplay &&
           CS_BUCKET_LABELS.map(({ key, title }) => {
-            const list = csBuckets[key];
+            const list = csBucketsDisplay[key];
             if (list.length === 0) return null;
             return (
               <div key={key} className="space-y-3">
@@ -288,6 +413,8 @@ export default function CoursesPage() {
                     <CourseCard
                       key={course.course_id}
                       {...toCourseCardProps(course, csCatalog)}
+                      occupiedPlan={occupiedPicks}
+                      onPlanSectionSelect={onPlanSectionSelect}
                     />
                   ))}
                 </div>
@@ -299,12 +426,18 @@ export default function CoursesPage() {
       {missingGenEds.length > 0 && (
         <section className="space-y-8 border-t border-zinc-100 pt-10">
           <h2 className="text-lg font-semibold">Gen-Ed course recommendations</h2>
+          {occupiedPicks.length > 0 && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Same schedule filter: only courses with at least one open section that does not overlap
+              your selections.
+            </p>
+          )}
           {loading && (
             <p className="text-sm text-zinc-500">Loading gen-ed courses and sections…</p>
           )}
           {!loading &&
             missingGenEds.map((tag) => {
-              const list = coursesByGenEd[tag] ?? [];
+              const list = coursesByGenEdDisplay[tag] ?? [];
               const top = list.slice(0, TOP_GEN_ED_COURSES_PER_TAG);
               return (
                 <div key={tag} className="space-y-3">
@@ -329,6 +462,8 @@ export default function CoursesPage() {
                           <CourseCard
                             key={`${tag}-${course.course_id}`}
                             {...toCourseCardProps(course, null)}
+                            occupiedPlan={occupiedPicks}
+                            onPlanSectionSelect={onPlanSectionSelect}
                           />
                         ))}
                       </div>

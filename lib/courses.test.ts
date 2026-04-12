@@ -7,6 +7,8 @@ import {
   removeCoursesWithNoOpenSeats,
   removeGraduateLevelCourses,
   removeIneligibleCourses,
+  removeOccupiedTimes,
+  sectionConflictsOccupiedPlan,
   sortCSCourses,
   sortGenEdCourses,
 } from "@/lib/courses";
@@ -36,6 +38,14 @@ function jupSection(open_seats: number, total_seats = 10): JupSection {
     waitlist: 0,
     holdfile: null,
   };
+}
+
+function jupSectionMeet(
+  open_seats: number,
+  meetings: string[],
+  sec_code = "0101",
+): JupSection {
+  return { ...jupSection(open_seats), sec_code, meetings };
 }
 
 function makeCourse(
@@ -285,5 +295,90 @@ describe("sortGenEdCourses / countGenEdTagsSatisfied", () => {
     ];
     const out = sortGenEdCourses(items, missing);
     expect(out.map((c) => c.course_id)).toEqual(["ALPHA", "ZEBRA"]);
+  });
+});
+
+describe("removeOccupiedTimes", () => {
+  const occ: { courseNumber: string; meetings: string[] }[] = [
+    { courseNumber: "CMSC132", meetings: ["MWF-10:00am-10:50am-ARM-0123"] },
+  ];
+
+  it("is a no-op when occupied is empty", () => {
+    const c = {
+      course_id: "CMSC216",
+      sections: [jupSectionMeet(2, ["MWF-10:00am-10:50am-CSI-1115"])],
+    };
+    expect(removeOccupiedTimes([c], [])).toHaveLength(1);
+  });
+
+  it("keeps a course with an open non-overlapping section", () => {
+    const c = {
+      course_id: "CMSC216",
+      sections: [
+        jupSectionMeet(2, ["MWF-10:00am-10:50am-CSI-1115"], "0101"),
+        jupSectionMeet(2, ["MWF-2:00pm-2:50pm-CSI-1115"], "0102"),
+      ],
+    };
+    expect(removeOccupiedTimes([c], occ).map((x) => x.course_id)).toEqual(["CMSC216"]);
+  });
+
+  it("drops a course when every open section overlaps occupied", () => {
+    const c = {
+      course_id: "CMSC216",
+      sections: [jupSectionMeet(2, ["MWF-10:00am-10:50am-CSI-1115"])],
+    };
+    expect(removeOccupiedTimes([c], occ)).toHaveLength(0);
+  });
+
+  it("keeps a course on the plan even if all sections overlap", () => {
+    const c = {
+      course_id: "CMSC216",
+      sections: [jupSectionMeet(2, ["MWF-10:00am-10:50am-CSI-1115"])],
+    };
+    const onPlan = [{ courseNumber: "CMSC216", meetings: ["T-1:00pm-1:50pm-CSI-1115"] }];
+    expect(removeOccupiedTimes([c], onPlan)).toHaveLength(1);
+  });
+
+  it("drops full sections from consideration (no open seats)", () => {
+    const c = {
+      course_id: "CMSC216",
+      sections: [
+        jupSectionMeet(0, ["MWF-2:00pm-2:50pm-CSI-1115"], "0101"),
+        jupSectionMeet(0, ["MWF-10:00am-10:50am-CSI-1115"], "0102"),
+      ],
+    };
+    expect(removeOccupiedTimes([c], occ)).toHaveLength(0);
+  });
+});
+
+describe("sectionConflictsOccupiedPlan", () => {
+  it("flags MWF when plan has MW at the same window (shared days overlap)", () => {
+    const plan = [{ courseNumber: "CMSC132", meetings: ["MW-12:00pm-12:50pm-BLD-A"] }];
+    const sec = jupSectionMeet(3, ["MWF-12:00pm-12:50pm-BLD-B"], "0101");
+    expect(sectionConflictsOccupiedPlan(sec, plan)).toBe(true);
+  });
+
+  it("flags partial time overlap on a shared day", () => {
+    const plan = [{ courseNumber: "X", meetings: ["MW-12:00pm-12:50pm-BLD-A"] }];
+    const sec = jupSectionMeet(3, ["MWF-12:30pm-1:20pm-BLD-B"], "0101");
+    expect(sectionConflictsOccupiedPlan(sec, plan)).toBe(true);
+  });
+
+  it("does not flag when only F overlaps in name but times are disjoint on shared days", () => {
+    const plan = [{ courseNumber: "X", meetings: ["MW-12:00pm-12:50pm-BLD-A"] }];
+    const sec = jupSectionMeet(3, ["MWF-2:00pm-2:50pm-BLD-B"], "0101");
+    expect(sectionConflictsOccupiedPlan(sec, plan)).toBe(false);
+  });
+
+  it("ignores the same course number so sibling sections stay selectable", () => {
+    const plan = [{ courseNumber: "CMSC216", meetings: ["MW-10:00am-10:50am-BLD-A"] }];
+    const sec = jupSectionMeet(3, ["MW-10:00am-10:50am-BLD-B"], "0102");
+    expect(sectionConflictsOccupiedPlan(sec, plan, "CMSC216")).toBe(false);
+  });
+
+  it("still flags conflict against a different course", () => {
+    const plan = [{ courseNumber: "CMSC132", meetings: ["MW-10:00am-10:50am-BLD-A"] }];
+    const sec = jupSectionMeet(3, ["MW-10:00am-10:50am-BLD-B"], "0102");
+    expect(sectionConflictsOccupiedPlan(sec, plan, "CMSC216")).toBe(true);
   });
 });

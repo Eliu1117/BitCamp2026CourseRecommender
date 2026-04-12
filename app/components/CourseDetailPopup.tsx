@@ -1,21 +1,21 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
+import { formatJupiterMeeting, type JupSection } from '@/lib/api';
+import { sectionConflictsOccupiedPlan } from '@/lib/courses';
 import type { CourseCardProps } from './CourseCard';
 
-export type CourseDetailPopupProps = CourseCardProps & {
+export type CourseDetailPopupProps = Omit<CourseCardProps, 'onPlanSectionSelect'> & {
   open: boolean;
   onClose: () => void;
+  onSelectSection?: (section: JupSection) => void;
 };
-
-function parseMeeting(m: string) {
-  const [days, start, end, building, room] = m.split('-');
-  return { days, start, end, building, room };
-}
 
 export default function CourseDetailPopup({
   open,
   onClose,
+  onSelectSection,
+  occupiedPlan = [],
   courseNumber,
   credits,
   title,
@@ -24,6 +24,11 @@ export default function CourseDetailPopup({
   unlocks,
   sections = [],
 }: CourseDetailPopupProps) {
+  const planBlocksOtherCourses = useMemo(
+    () => (occupiedPlan?.length ?? 0) > 0,
+    [occupiedPlan],
+  );
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -83,30 +88,77 @@ export default function CourseDetailPopup({
           {sections.length === 0 ? (
             <p className="mt-1 text-sm text-zinc-400">No sections available this semester.</p>
           ) : (
-            <ul className="mt-2 space-y-2">
-              {sections.map((s) => (
-                <li
-                  key={s.sec_code}
-                  className="rounded-lg border border-zinc-100 px-3 py-2 text-sm dark:border-zinc-800"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono font-medium">{s.sec_code}</span>
-                    <span className="text-zinc-500 truncate">{s.instructors.join(', ')}</span>
-                    <span className={`shrink-0 font-medium tabular-nums ${s.open_seats > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                      {s.open_seats}/{s.total_seats} open
-                    </span>
-                  </div>
-                  <div className="mt-1 space-y-0.5 text-xs text-zinc-400">
-                    {s.meetings.map((m, i) => {
-                      const { days, start, end, building, room } = parseMeeting(m);
-                      return (
-                        <div key={i}>{days} · {start}–{end} · {building} {room}</div>
-                      );
-                    })}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="mt-1 text-xs text-zinc-400">
+                Choose a section with open seats to select it and close this dialog.
+                {planBlocksOtherCourses &&
+                  ' Sections greyed out overlap another course you already put on your plan (same day, overlapping times).'}
+              </p>
+              <ul className="mt-2 space-y-2">
+                {sections.map((s) => {
+                  const hasOpenSeats = s.open_seats > 0;
+                  const scheduleConflict =
+                    planBlocksOtherCourses &&
+                    sectionConflictsOccupiedPlan(s, occupiedPlan, courseNumber);
+                  const selectable = hasOpenSeats && !scheduleConflict;
+                  const body = (
+                    <>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-medium">{s.sec_code}</span>
+                        <span className="min-w-0 truncate text-zinc-500">
+                          {s.instructors.join(', ')}
+                        </span>
+                        <span
+                          className={`shrink-0 font-medium tabular-nums ${hasOpenSeats ? 'text-green-600' : 'text-red-500'}`}
+                        >
+                          {s.open_seats}/{s.total_seats} open
+                        </span>
+                      </div>
+                      <div className="mt-1 space-y-0.5 text-xs text-zinc-400">
+                        {s.meetings.map((m, i) => (
+                          <div key={i}>{formatJupiterMeeting(m)}</div>
+                        ))}
+                      </div>
+                    </>
+                  );
+                  return (
+                    <li
+                      key={s.sec_code}
+                      className={`overflow-hidden rounded-lg border text-sm dark:border-zinc-800 ${
+                        selectable
+                          ? 'border-zinc-200 dark:border-zinc-700'
+                          : 'border-zinc-100 bg-zinc-50/80 opacity-70 dark:border-zinc-800 dark:bg-zinc-900/40'
+                      }`}
+                    >
+                      {selectable ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onSelectSection?.(s);
+                            onClose();
+                          }}
+                          aria-label={`Select section ${s.sec_code}`}
+                          className="w-full px-3 py-2 text-left transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-400 dark:hover:bg-zinc-900/80"
+                        >
+                          {body}
+                        </button>
+                      ) : (
+                        <div
+                          className="px-3 py-2"
+                          title={
+                            scheduleConflict
+                              ? 'Overlaps meeting times from another course on your plan'
+                              : 'No open seats — cannot select'
+                          }
+                        >
+                          {body}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </section>
 

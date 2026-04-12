@@ -12,6 +12,13 @@ export interface JupSection {
   holdfile: string | null;
 }
 
+/** Pretty-print a Jupiter `meetings` string for UI. */
+export function formatJupiterMeeting(raw: string): string {
+  const [days, start, end, building, room] = raw.split('-');
+  if (start == null || end == null) return raw;
+  return `${days} · ${start}–${end} · ${building} ${room}`;
+}
+
 export async function getJupSections(courseCode: string, semester = '202608'): Promise<JupSection[]> {
   const res = await fetch(
     `${JUPITERP}/v0/sections?courseCodes=${courseCode}&semester=${semester}`,

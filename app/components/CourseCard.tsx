@@ -3,10 +3,7 @@
 import { useState } from 'react';
 import CourseDetailPopup from './CourseDetailPopup';
 import type { JupSection } from '@/lib/api';
-
-// #region agent log
-let __agentCourseCardUnlockLog = 0;
-// #endregion
+import type { OccupiedSectionPick } from '@/lib/courses';
 
 export type Prof = {
   name: string;
@@ -24,30 +21,31 @@ export type CourseCardProps = {
   unlocks: string[];
   sections?: JupSection[];
   genEdTags?: string[];
+  /** Planned sections on other courses; used to grey out conflicting times in the popup. */
+  occupiedPlan?: OccupiedSectionPick[];
+  /** When set, choosing an open section in the dialog records the pick (e.g. for a plan summary). */
+  onPlanSectionSelect?: (pick: {
+    courseNumber: string;
+    title: string;
+    sectionCode: string;
+    /** Jupiter `meetings` strings (e.g. days-time-room) for the chosen section. */
+    meetings: string[];
+  }) => void;
 };
 
-export default function CourseCard(props: CourseCardProps) {
-  const { courseNumber, credits, title, profs, unlocks, sections = [], genEdTags = [] } = props;
+export default function CourseCard({
+  onPlanSectionSelect,
+  occupiedPlan,
+  courseNumber,
+  credits,
+  title,
+  description,
+  profs,
+  unlocks,
+  sections = [],
+  genEdTags = [],
+}: CourseCardProps) {
   const [popupOpen, setPopupOpen] = useState(false);
-
-  // #region agent log
-  if (__agentCourseCardUnlockLog < 4) {
-    __agentCourseCardUnlockLog++;
-    fetch('http://127.0.0.1:7283/ingest/f76f60ef-6faa-4524-b568-c2174a389ed1', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '486541' },
-      body: JSON.stringify({
-        sessionId: '486541',
-        runId: 'post-fix',
-        hypothesisId: 'D',
-        location: 'CourseCard.tsx:render',
-        message: 'CourseCard received unlocks',
-        data: { courseNumber, unlocksLength: unlocks.length },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
 
   const n = profs.filter(p => p.stars > 0).length;
   const avgStars = n > 0 ? profs.filter(p => p.stars > 0).reduce((sum, p) => sum + p.stars, 0) / n : null;
@@ -58,7 +56,7 @@ export default function CourseCard(props: CourseCardProps) {
 
   return (
     <>
-      <article className="relative rounded-xl border border-zinc-200 bg-white p-4 pb-12 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <article className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <header className="space-y-1">
           <div className="flex items-baseline justify-between gap-2">
             <p className="font-mono text-sm text-zinc-500">{courseNumber}</p>
@@ -113,17 +111,36 @@ export default function CourseCard(props: CourseCardProps) {
         <button
           type="button"
           onClick={() => setPopupOpen(true)}
-          aria-label="Course details"
-          className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-sm font-semibold leading-none text-zinc-600 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:bg-zinc-900"
+          className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-900"
         >
-          <span className="font-serif italic">i</span>
+          Select sections
         </button>
       </article>
 
       <CourseDetailPopup
         open={popupOpen}
         onClose={() => setPopupOpen(false)}
-        {...props}
+        onSelectSection={
+          onPlanSectionSelect
+            ? (section) => {
+                onPlanSectionSelect({
+                  courseNumber,
+                  title,
+                  sectionCode: section.sec_code,
+                  meetings: [...section.meetings],
+                });
+              }
+            : undefined
+        }
+        courseNumber={courseNumber}
+        credits={credits}
+        title={title}
+        description={description}
+        profs={profs}
+        unlocks={unlocks}
+        sections={sections}
+        genEdTags={genEdTags}
+        occupiedPlan={occupiedPlan}
       />
     </>
   );
