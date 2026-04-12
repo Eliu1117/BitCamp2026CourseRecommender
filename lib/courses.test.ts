@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Course } from "@/lib/api";
+import type { Course, JupSection } from "@/lib/api";
 import {
   getCSCourseTier,
+  getDownstreamCourseIds,
+  removeCoursesWithNoOpenSeats,
+  removeGraduateLevelCourses,
   removeIneligibleCourses,
   sortCSCourses,
 } from "@/lib/courses";
@@ -17,6 +20,19 @@ function emptyRelationships(
     additional_info: null,
     also_offered_as: null,
     credit_granted_for: null,
+  };
+}
+
+function jupSection(open_seats: number, total_seats = 10): JupSection {
+  return {
+    course_code: "X",
+    sec_code: "0101",
+    instructors: [],
+    meetings: [],
+    open_seats,
+    total_seats,
+    waitlist: 0,
+    holdfile: null,
   };
 }
 
@@ -92,6 +108,57 @@ describe("removeIneligibleCourses", () => {
     expect(
       removeIneligibleCourses(courses, ["CMSC132", "MATH140"], []).length,
     ).toBe(1);
+  });
+});
+
+describe("removeCoursesWithNoOpenSeats", () => {
+  it("removes courses whose sections have zero open seats total", () => {
+    const a = { ...makeCourse("CMSC216"), sections: [jupSection(0), jupSection(0)] };
+    const b = { ...makeCourse("CMSC330"), sections: [jupSection(2)] };
+    expect(
+      removeCoursesWithNoOpenSeats([a, b]).map((c) => c.course_id),
+    ).toEqual(["CMSC330"]);
+  });
+
+  it("removes courses with no sections", () => {
+    const x = { ...makeCourse("CMSC132"), sections: [] as JupSection[] };
+    expect(removeCoursesWithNoOpenSeats([x])).toHaveLength(0);
+  });
+});
+
+describe("removeGraduateLevelCourses", () => {
+  it("removes 500-level and higher catalog numbers", () => {
+    const out = removeGraduateLevelCourses([
+      makeCourse("CMSC401"),
+      makeCourse("CMSC500"),
+      makeCourse("CMSC698"),
+    ]);
+    expect(out.map((c) => c.course_id)).toEqual(["CMSC401"]);
+  });
+
+  it("keeps ids that do not match DEPT+NNN", () => {
+    expect(removeGraduateLevelCourses([makeCourse("BAD")])).toHaveLength(1);
+  });
+});
+
+describe("getDownstreamCourseIds", () => {
+  it("returns catalog courses whose prereq text lists the target id", () => {
+    const catalog = [
+      makeCourse("CMSC216", "Minimum grade of C- in CMSC132"),
+      makeCourse("CMSC330", "CMSC216 and CMSC250"),
+    ];
+    expect(getDownstreamCourseIds(catalog, "CMSC132")).toEqual(["CMSC216"]);
+  });
+
+  it("dedupes and sorts by normalized course id", () => {
+    const catalog: Course[] = [
+      makeCourse("CMSC330", "CMSC216"),
+      makeCourse("CMSC351", "CMSC216"),
+    ];
+    expect(getDownstreamCourseIds(catalog, "CMSC216")).toEqual([
+      "CMSC330",
+      "CMSC351",
+    ]);
   });
 });
 

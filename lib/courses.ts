@@ -1,4 +1,4 @@
-import { umdio, Course, getJupSections } from '@/lib/api';
+import { umdio, Course, getJupSections, type JupSection } from '@/lib/api';
 
 export async function getAllCoursesByAttribute(params?: {dept_id?: string; semester?: number; credits?: number; }): Promise<Course[]> {
     const results: Course[] = [];
@@ -54,6 +54,19 @@ export async function getSectionsByCourse(course_id: string, semester: string) {
         return [];  
       }
     }
+
+/**
+ * Drops courses with no open seats across all attached Jupiter sections.
+ * Courses with an empty `sections` array sum to 0 open seats and are removed.
+ */
+export function removeCoursesWithNoOpenSeats<T extends { sections: JupSection[] }>(
+  courses: T[],
+): T[] {
+  return courses.filter((c) => {
+    const open = c.sections.reduce((sum, s) => sum + s.open_seats, 0);
+    return open > 0;
+  });
+}
 
 /** Catalog-style course ids embedded in umd.io prerequisite prose (e.g. CMSC131). */
 const COURSE_ID_IN_PREREQ_TEXT = /\b[A-Z]{4}\d{3}\b/g;
@@ -150,11 +163,40 @@ function normalizeCourseId(id: string): string {
   return id.replace(/\s+/g, '').toUpperCase();
 }
 
+/** Catalog courses whose `relationships.prereqs` text lists `courseId` (same parsing as eligibility). */
+export function getDownstreamCourseIds(catalog: Course[], courseId: string): string[] {
+  const target = normalizeCourseId(courseId);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of catalog) {
+    const needed = extractPrereqCourseIds(c.relationships?.prereqs);
+    if (!needed.some((id) => normalizeCourseId(id) === target)) continue;
+    const key = normalizeCourseId(c.course_id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c.course_id);
+  }
+  out.sort((a, b) => normalizeCourseId(a).localeCompare(normalizeCourseId(b)));
+  return out;
+}
+
 function parseDeptNumber(courseId: string): { dept: string; num: number } | null {
   const n = normalizeCourseId(courseId);
   const m = n.match(/^([A-Z]{4})(\d{3})$/);
   if (!m) return null;
   return { dept: m[1], num: Number(m[2]) };
+}
+
+/**
+ * Drops courses whose catalog id is `DEPT` + three digits with number ≥ 500 (graduate).
+ * Ids that do not match that pattern are kept.
+ */
+export function removeGraduateLevelCourses<T extends { course_id: string }>(courses: T[]): T[] {
+  return courses.filter((c) => {
+    const p = parseDeptNumber(c.course_id);
+    if (p === null) return true;
+    return p.num < 500;
+  });
 }
 
 /**
