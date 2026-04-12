@@ -303,3 +303,55 @@ export function sortCSCourses<T extends SortableCSCourse>(
 
   return buckets;
 }
+
+export type SortableGenEdCourse = Course & {
+  profs?: { stars: number; gpa: number }[];
+};
+
+function normalizeGenEdTagSet(tags: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of tags) {
+    for (const part of t.toUpperCase().split(/[\s,]+/).filter(Boolean)) {
+      out.add(part);
+    }
+  }
+  return out;
+}
+
+/** How many of the still-needed gen-ed labels this course carries. */
+export function countGenEdTagsSatisfied(course: Course, missingTags: string[]): number {
+  const needed = normalizeGenEdTagSet(missingTags);
+  if (needed.size === 0) return 0;
+  const offered = (course.gen_ed ?? []).flat().map((x) => x.toUpperCase());
+  return offered.filter((tag) => needed.has(tag)).length;
+}
+
+/**
+ * Orders courses by how many `missingTags` they satisfy (desc), then average
+ * professor stars and GPA when `profs` is present on an item. Matches
+ * `courseMatchesGenEds`-style tag strings (split on whitespace/commas, uppercase).
+ */
+export function sortGenEdCourses<T extends Course>(courses: T[], genEdTags: string[]): T[] {
+  return [...courses].sort((a, b) => {
+    const ca = countGenEdTagsSatisfied(a, genEdTags);
+    const cb = countGenEdTagsSatisfied(b, genEdTags);
+    if (cb !== ca) return cb - ca;
+    const pa =
+      'profs' in a && Array.isArray((a as SortableGenEdCourse).profs)
+        ? (a as SortableGenEdCourse).profs
+        : undefined;
+    const pb =
+      'profs' in b && Array.isArray((b as SortableGenEdCourse).profs)
+        ? (b as SortableGenEdCourse).profs
+        : undefined;
+    const ra = avgProfMetrics(pa);
+    const rb = avgProfMetrics(pb);
+    const sa = ra.stars ?? -Infinity;
+    const sb = rb.stars ?? -Infinity;
+    if (sb !== sa) return sb - sa;
+    const ga = ra.gpa ?? -Infinity;
+    const gb = rb.gpa ?? -Infinity;
+    if (gb !== ga) return gb - ga;
+    return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
+  });
+}
