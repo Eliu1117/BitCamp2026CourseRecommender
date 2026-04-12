@@ -19,17 +19,17 @@ export async function getAllCoursesByAttribute(params?: {dept_id?: string; semes
     return results;
   }
 
- export async function getAllCoursesByGenEd(tag: string) {
-    const results = [];
-    let page = 1;
-    while (true) {
-      const batch = await umdio.courses.list({ gen_ed: tag, per_page: 100, page });
-      results.push(...batch);
-      if (batch.length < 100) break;
-      page++;
-    }
-    return results;
+export async function getAllCoursesByGenEd(tag: string): Promise<Course[]> {
+  const results: Course[] = [];
+  let page = 1;
+  while (true) {
+    const batch = await umdio.courses.list({ gen_ed: tag, per_page: 100, page });
+    results.push(...batch);
+    if (batch.length < 100) break;
+    page++;
   }
+  return results;
+}
 
  export function courseMatchesGenEds(course: Course, input: string): boolean {
     const tags = input.toUpperCase().split(/[\s,]+/).filter(Boolean);
@@ -304,7 +304,8 @@ export function sortCSCourses<T extends SortableCSCourse>(
   return buckets;
 }
 
-export type SortableGenEdCourse = Course & {
+/** Minimal shape for `sortGenEdCourses` (works with `Course` or `CourseWithSections`-style rows). */
+export type GenEdSortable = Pick<Course, 'course_id' | 'gen_ed'> & {
   profs?: { stars: number; gpa: number }[];
 };
 
@@ -319,7 +320,10 @@ function normalizeGenEdTagSet(tags: string[]): Set<string> {
 }
 
 /** How many of the still-needed gen-ed labels this course carries. */
-export function countGenEdTagsSatisfied(course: Course, missingTags: string[]): number {
+export function countGenEdTagsSatisfied(
+  course: Pick<Course, 'gen_ed'>,
+  missingTags: string[],
+): number {
   const needed = normalizeGenEdTagSet(missingTags);
   if (needed.size === 0) return 0;
   const offered = (course.gen_ed ?? []).flat().map((x) => x.toUpperCase());
@@ -331,19 +335,13 @@ export function countGenEdTagsSatisfied(course: Course, missingTags: string[]): 
  * professor stars and GPA when `profs` is present on an item. Matches
  * `courseMatchesGenEds`-style tag strings (split on whitespace/commas, uppercase).
  */
-export function sortGenEdCourses<T extends Course>(courses: T[], genEdTags: string[]): T[] {
+export function sortGenEdCourses<T extends GenEdSortable>(courses: T[], genEdTags: string[]): T[] {
   return [...courses].sort((a, b) => {
     const ca = countGenEdTagsSatisfied(a, genEdTags);
     const cb = countGenEdTagsSatisfied(b, genEdTags);
     if (cb !== ca) return cb - ca;
-    const pa =
-      'profs' in a && Array.isArray((a as SortableGenEdCourse).profs)
-        ? (a as SortableGenEdCourse).profs
-        : undefined;
-    const pb =
-      'profs' in b && Array.isArray((b as SortableGenEdCourse).profs)
-        ? (b as SortableGenEdCourse).profs
-        : undefined;
+    const pa = Array.isArray(a.profs) ? a.profs : undefined;
+    const pb = Array.isArray(b.profs) ? b.profs : undefined;
     const ra = avgProfMetrics(pa);
     const rb = avgProfMetrics(pb);
     const sa = ra.stars ?? -Infinity;

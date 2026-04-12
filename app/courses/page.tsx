@@ -6,18 +6,20 @@ import { type AuditResult } from '@/lib/parseAudit';
 import { type Course, type JupSection } from '@/lib/api';
 import {
   getAllCoursesByAttribute,
+  getAllCoursesByGenEd,
   getDownstreamCourseIds,
   removeCoursesWithNoOpenSeats,
   removeGraduateLevelCourses,
   removeIneligibleCourses,
   sortCSCourses,
+  sortGenEdCourses,
   type SortedCSCourses,
 } from '@/lib/courses';
 import CourseCard, { type CourseCardProps } from '@/app/components/CourseCard';
 
-const UMDIO = 'https://api.umd.io/v1';
 const JUPITERP = 'https://api.jupiterp.com';
 const SEMESTER = '202608';
+const TOP_GEN_ED_COURSES_PER_TAG = 10;
 
 interface CourseWithSections extends Omit<Course, 'sections'> {
   sections: JupSection[];
@@ -35,19 +37,18 @@ async function attachJupSections(course: Course): Promise<CourseWithSections> {
   }
 }
 
-async function fetchCoursesForGenEd(
+async function loadGenEdCoursesForTag(
   tag: string,
   completedIds: string[],
   inProgressIds: string[],
+  allMissingTags: string[],
 ): Promise<CourseWithSections[]> {
-  const res = await fetch(`${UMDIO}/courses?gen_ed=${tag}&per_page=50`);
-  if (!res.ok) return [];
-  const courses: Course[] = await res.json();
-
+  const courses = await getAllCoursesByGenEd(tag);
   const eligible = removeIneligibleCourses(courses, completedIds, inProgressIds);
   const undergrad = removeGraduateLevelCourses(eligible);
   const withSections = await Promise.all(undergrad.map(attachJupSections));
-  return removeCoursesWithNoOpenSeats(withSections);
+  const withOpenSeats = removeCoursesWithNoOpenSeats(withSections);
+  return sortGenEdCourses(withOpenSeats, allMissingTags);
 }
 
 async function loadSortedCSCoursesWithSections(
@@ -200,7 +201,12 @@ export default function CoursesPage() {
         ? Promise.resolve({} as Record<string, CourseWithSections[]>)
         : Promise.all(
             missingGenEds.map(async (tag) => {
-              const courses = await fetchCoursesForGenEd(tag, completedIds, inProgressIds);
+              const courses = await loadGenEdCoursesForTag(
+                tag,
+                completedIds,
+                inProgressIds,
+                missingGenEds,
+              );
               return [tag, courses] as [string, CourseWithSections[]];
             }),
           ).then((entries) => Object.fromEntries(entries));
@@ -289,6 +295,50 @@ export default function CoursesPage() {
             );
           })}
       </section>
+
+      {missingGenEds.length > 0 && (
+        <section className="space-y-8 border-t border-zinc-100 pt-10">
+          <h2 className="text-lg font-semibold">Gen-Ed course recommendations</h2>
+          {loading && (
+            <p className="text-sm text-zinc-500">Loading gen-ed courses and sections…</p>
+          )}
+          {!loading &&
+            missingGenEds.map((tag) => {
+              const list = coursesByGenEd[tag] ?? [];
+              const top = list.slice(0, TOP_GEN_ED_COURSES_PER_TAG);
+              return (
+                <div key={tag} className="space-y-3">
+                  <h3 className="text-base font-medium text-zinc-700 dark:text-zinc-300">
+                    <span className="font-mono">{tag}</span>
+                  </h3>
+                  {list.length === 0 ? (
+                    <p className="text-sm text-zinc-500">
+                      No undergraduate courses with open seats for this tag after your audit and
+                      prerequisite filters.
+                    </p>
+                  ) : (
+                    <>
+                      {list.length > TOP_GEN_ED_COURSES_PER_TAG && (
+                        <p className="text-xs text-zinc-500">
+                          Top {TOP_GEN_ED_COURSES_PER_TAG} of {list.length} (most overlapping missing
+                          tags, then instructor ratings).
+                        </p>
+                      )}
+                      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        {top.map((course) => (
+                          <CourseCard
+                            key={`${tag}-${course.course_id}`}
+                            {...toCourseCardProps(course, null)}
+                          />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+        </section>
+      )}
 
       <div className="pt-4 border-t border-zinc-100">
         <button
