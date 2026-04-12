@@ -199,6 +199,51 @@ const CS_BUCKET_LABELS: { key: 'lower' | 'upper' | 'electives'; title: string }[
   { key: 'electives', title: 'CMSC electives (300–499)' },
 ];
 
+const UPPER_LEVEL_REQUIRED_COURSES = 5;
+const UPPER_LEVEL_REQUIRED_AREAS = 3;
+const CMSC_ELECTIVE_CREDITS_REQUIRED = 6;
+
+function sumCreditsForCourseIds(audit: AuditResult, courseIds: string[]): number {
+  const ids = new Set(courseIds.map((id) => normalizeCourseId(id)));
+  let sum = 0;
+  for (const c of audit.courses.all) {
+    if (ids.has(normalizeCourseId(c.course_id))) sum += c.credits;
+  }
+  return sum;
+}
+
+/** Five upper-level courses from at least three of five areas (from `upper_level_requirements.areas`). */
+function formatUpperLevelProgress(audit: AuditResult): string | null {
+  const { areas } = audit.upper_level_requirements;
+  if (!areas.length) return null;
+  const seenCourses = new Set<string>();
+  let areasWithActivity = 0;
+  for (const a of areas) {
+    const ids = [...a.courses_taken, ...a.courses_in_progress];
+    if (ids.length > 0) areasWithActivity++;
+    for (const id of ids) seenCourses.add(normalizeCourseId(id));
+  }
+  const coursesDone = seenCourses.size;
+  return `${coursesDone}/${UPPER_LEVEL_REQUIRED_COURSES} courses · ${areasWithActivity}/${UPPER_LEVEL_REQUIRED_AREAS} areas`;
+}
+
+/** CMSC 300/400 elective credits (audit lists applied courses; requirement is 6 credits). */
+function formatCMSCelectiveProgress(audit: AuditResult): string | null {
+  const e = audit.cmsc_electives;
+  const ids = [...e.courses_taken, ...e.courses_in_progress];
+  const applied = sumCreditsForCourseIds(audit, ids);
+  return `${applied}/${CMSC_ELECTIVE_CREDITS_REQUIRED} cr`;
+}
+
+function csBucketProgressLabel(
+  audit: AuditResult,
+  key: 'lower' | 'upper' | 'electives',
+): string | null {
+  if (key === 'upper') return formatUpperLevelProgress(audit);
+  if (key === 'electives') return formatCMSCelectiveProgress(audit);
+  return null;
+}
+
 type PlannedSection = {
   courseNumber: string;
   sectionCode: string;
@@ -460,9 +505,17 @@ export default function CoursesPage() {
           CS_BUCKET_LABELS.map(({ key, title }) => {
             const list = csBucketsDisplay[key];
             if (list.length === 0) return null;
+            const csProgress = csBucketProgressLabel(audit, key);
             return (
               <div key={key} className="space-y-3">
-                <h3 className="text-base font-medium text-zinc-700 dark:text-zinc-300">{title}</h3>
+                <h3 className="text-base font-medium text-zinc-700 dark:text-zinc-300">
+                  <span>{title}</span>
+                  {csProgress != null && (
+                    <span className="ml-2 font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
+                      · {csProgress}
+                    </span>
+                  )}
+                </h3>
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                   {list.map((course) => (
                     <CourseCard
