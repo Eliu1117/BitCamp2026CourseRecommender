@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import CourseDetailPopup from './CourseDetailPopup';
 import type { JupSection } from '@/lib/api';
 import { getPlanetTerpCourse, getPlanetTerpProfessor } from '@/lib/api';
+import type { OccupiedSectionPick } from '@/lib/courses';
 
 export type Prof = {
   name: string;
@@ -21,44 +22,93 @@ export type CourseCardProps = {
   unlocks: string[];
   sections?: JupSection[];
   genEdTags?: string[];
+  /** Planned sections on other courses; used to grey out conflicting times in the popup. */
+  occupiedPlan?: OccupiedSectionPick[];
+  /** When set, choosing an open section in the dialog records the pick (e.g. for a plan summary). */
+  onPlanSectionSelect?: (pick: {
+    courseNumber: string;
+    title: string;
+    sectionCode: string;
+    /** Jupiter `meetings` strings (e.g. days-time-room) for the chosen section. */
+    meetings: string[];
+  }) => void;
+  /** PlanetTerp course average GPA when the parent already fetched it (skips duplicate course API call). */
+  planetTerpCourseGpa?: number;
 };
 
-export default function CourseCard(props: CourseCardProps) {
-  const { courseNumber, credits, title, profs, unlocks, sections = [], genEdTags = [] } = props;
+export default function CourseCard({
+  onPlanSectionSelect,
+  occupiedPlan,
+  courseNumber,
+  credits,
+  title,
+  description,
+  profs,
+  unlocks,
+  sections = [],
+  genEdTags = [],
+  planetTerpCourseGpa,
+}: CourseCardProps) {
   const [popupOpen, setPopupOpen] = useState(false);
 
   const [courseGpa, setCourseGpa] = useState<number | null>(null);
   const [avgStars, setAvgStars] = useState<number | null>(null);
 
+  const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
+
+  useEffect(() => {
+    setCourseGpa(null);
+    setAvgStars(null);
+  }, [courseNumber]);
+
   useEffect(() => {
     let cancelled = false;
-
-    getPlanetTerpCourse(courseNumber).then(data => {
-      if (!cancelled && data?.average_gpa != null) setCourseGpa(data.average_gpa);
-    });
-
-    const profNames = profs.map(p => p.name);
-    if (profNames.length > 0) {
-      Promise.all(profNames.map(getPlanetTerpProfessor)).then(results => {
+    if (planetTerpCourseGpa != null && planetTerpCourseGpa > 0) {
+      setCourseGpa(planetTerpCourseGpa);
+    } else {
+      getPlanetTerpCourse(courseNumber).then((data) => {
         if (cancelled) return;
-        const ratings = results
-          .map(r => r?.average_rating)
-          .filter((v): v is number => v != null && v > 0);
-        if (ratings.length > 0) {
-          setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
-        }
+        const g = data?.average_gpa;
+        if (g != null && g > 0) setCourseGpa(g);
+        else setCourseGpa(null);
       });
     }
+    return () => {
+      cancelled = true;
+    };
+  }, [courseNumber, planetTerpCourseGpa]);
 
-    return () => { cancelled = true; };
-  }, [courseNumber, profs]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!profNamesKey) {
+      setAvgStars(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const profNames = profNamesKey.split('\0');
+    Promise.all(profNames.map(getPlanetTerpProfessor)).then((results) => {
+      if (cancelled) return;
+      const ratings = results
+        .map((r) => r?.average_rating)
+        .filter((v): v is number => v != null && v > 0);
+      if (ratings.length > 0) {
+        setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
+      } else {
+        setAvgStars(null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [courseNumber, profNamesKey]);
 
   const openSeats = sections.reduce((sum, s) => sum + s.open_seats, 0);
   const totalSeats = sections.reduce((sum, s) => sum + s.total_seats, 0);
 
   return (
     <>
-      <article className="relative rounded-xl border border-zinc-200 bg-white p-4 pb-12 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+      <article className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <header className="space-y-1">
           <div className="flex items-baseline justify-between gap-2">
             <p className="font-mono text-sm text-zinc-500">{courseNumber}</p>
@@ -113,17 +163,36 @@ export default function CourseCard(props: CourseCardProps) {
         <button
           type="button"
           onClick={() => setPopupOpen(true)}
-          aria-label="Course details"
-          className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-sm font-semibold leading-none text-zinc-600 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:bg-zinc-900"
+          className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-900"
         >
-          <span className="font-serif italic">i</span>
+          Select sections
         </button>
       </article>
 
       <CourseDetailPopup
         open={popupOpen}
         onClose={() => setPopupOpen(false)}
-        {...props}
+        onSelectSection={
+          onPlanSectionSelect
+            ? (section) => {
+                onPlanSectionSelect({
+                  courseNumber,
+                  title,
+                  sectionCode: section.sec_code,
+                  meetings: [...section.meetings],
+                });
+              }
+            : undefined
+        }
+        courseNumber={courseNumber}
+        credits={credits}
+        title={title}
+        description={description}
+        profs={profs}
+        unlocks={unlocks}
+        sections={sections}
+        genEdTags={genEdTags}
+        occupiedPlan={occupiedPlan}
       />
     </>
   );

@@ -159,7 +159,7 @@ export interface SortedCSCourses<T> {
   other: T[];
 }
 
-function normalizeCourseId(id: string): string {
+export function normalizeCourseId(id: string): string {
   return id.replace(/\s+/g, '').toUpperCase();
 }
 
@@ -289,6 +289,32 @@ export function sortCSCourses<T extends SortableCSCourse>(
   return buckets;
 }
 
+/**
+ * Re-sorts each CS bucket after PlanetTerp (or similar) course GPAs arrive: same unlock ordering,
+ * then GPA descending, then `course_id`. `gpaByCourseId` keys must be {@link normalizeCourseId} values.
+ */
+export function resortCSCoursesByUnlocksAndGpa<T extends SortableCSCourse>(
+  buckets: SortedCSCourses<T>,
+  catalogForUnlocks: Course[],
+  gpaByCourseId: Map<string, number>,
+): SortedCSCourses<T> {
+  const unlockCounts = buildUnlockCounts(catalogForUnlocks);
+  const enrichAndSort = (items: T[]): T[] => {
+    const enriched = items.map((item) => {
+      const g = gpaByCourseId.get(normalizeCourseId(item.course_id));
+      if (g == null || !(g > 0)) return item;
+      return { ...item, profs: [{ stars: 0, gpa: g }] };
+    });
+    return sortCSCourseTier(enriched, unlockCounts);
+  };
+  return {
+    lower: enrichAndSort(buckets.lower),
+    upper: enrichAndSort(buckets.upper),
+    electives: enrichAndSort(buckets.electives),
+    other: enrichAndSort(buckets.other),
+  };
+}
+
 /** Minimal shape for `sortGenEdCourses` (works with `Course` or `CourseWithSections`-style rows). */
 export type GenEdSortable = Pick<Course, 'course_id' | 'gen_ed'> & {
   profs?: { stars: number; gpa: number }[];
@@ -331,5 +357,144 @@ export function sortGenEdCourses<T extends GenEdSortable>(courses: T[], genEdTag
     const gb = avgGpaFromProfs(pb) ?? -Infinity;
     if (gb !== ga) return gb - ga;
     return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
+  });
+}
+
+/**
+ * Re-runs gen-ed sort using PlanetTerp course GPAs when available (map keys: {@link normalizeCourseId}).
+ */
+export function sortGenEdCoursesWithPlanetTerpGpa<T extends GenEdSortable>(
+  courses: T[],
+  genEdTags: string[],
+  gpaByCourseId: Map<string, number>,
+): T[] {
+  const enriched = courses.map((c) => {
+    const g = gpaByCourseId.get(normalizeCourseId(c.course_id));
+    if (g == null || !(g > 0)) return c;
+    return { ...c, profs: [{ stars: 0, gpa: g }] };
+  });
+  return sortGenEdCourses(enriched, genEdTags);
+}
+
+/** Picks from the plan (e.g. courses/page) used to block overlapping meeting times. */
+export type OccupiedSectionPick = {
+  courseNumber: string;
+  meetings: string[];
+};
+
+type TimeSlot = { day: string; startMin: number; endMin: number };
+
+function parseJupiterTimeToMinutes(s: string): number | null {
+  const t = s.trim().toLowerCase();
+  let m = t.match(/^(\d{1,2}):(\d{2})(am|pm)$/);
+  if (m) {
+    let h = Number(m[1]);
+    const min = Number(m[2]);
+    const ap = m[3];
+    if (ap === 'pm' && h !== 12) h += 12;
+    if (ap === 'am' && h === 12) h = 0;
+    return h * 60 + min;
+  }
+  m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  return null;
+}
+
+/** One Jupiter `meetings` string → per-day intervals (M/T/W/R/F only). */
+function slotsFromJupiterMeeting(raw: string): TimeSlot[] {
+  const parts = raw.split('-');
+  if (parts.length < 3) return [];
+  const daysPart = parts[0].toUpperCase();
+  const startMin = parseJupiterTimeToMinutes(parts[1]);
+  const endMin = parseJupiterTimeToMinutes(parts[2]);
+  if (startMin == null || endMin == null) return [];
+  const lo = Math.min(startMin, endMin);
+  const hi = Math.max(startMin, endMin);
+  const days: string[] = [];
+  for (const ch of daysPart) {
+    if ('MTWRF'.includes(ch)) days.push(ch);
+  }
+  if (days.length === 0) return [];
+  return days.map((day) => ({ day, startMin: lo, endMin: hi }));
+}
+
+function slotsFromSection(section: JupSection): TimeSlot[] {
+  return section.meetings.flatMap(slotsFromJupiterMeeting);
+}
+
+function slotsFromOccupied(occupied: OccupiedSectionPick[]): TimeSlot[] {
+  const out: TimeSlot[] = [];
+  for (const o of occupied) {
+    for (const m of o.meetings) out.push(...slotsFromJupiterMeeting(m));
+  }
+  return out;
+}
+
+/** Occupied slots from other courses only (so the user can change section on the same course). */
+function slotsFromOccupiedExcludingCourse(
+  occupied: OccupiedSectionPick[],
+  ignoreCourseNumber: string | undefined,
+): TimeSlot[] {
+  if (!ignoreCourseNumber) return slotsFromOccupied(occupied);
+  const id = normalizeCourseId(ignoreCourseNumber);
+  const filtered = occupied.filter((o) => normalizeCourseId(o.courseNumber) !== id);
+  return slotsFromOccupied(filtered);
+}
+
+function slotsOverlap(a: TimeSlot, b: TimeSlot): boolean {
+  if (a.day !== b.day) return false;
+  return a.startMin < b.endMin && b.startMin < a.endMin;
+}
+
+function sectionConflictsSlots(section: JupSection, occ: TimeSlot[]): boolean {
+  const ss = slotsFromSection(section);
+  if (ss.length === 0) return false;
+  for (const a of ss) {
+    for (const b of occ) {
+      if (slotsOverlap(a, b)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True if this section overlaps any meeting from `occupied` on a shared day (M–F), using
+ * interval overlap (partial overlaps count). Pass `currentCourseNumber` to ignore that
+ * course’s own plan row so other sections of the same class stay choosable.
+ */
+export function sectionConflictsOccupiedPlan(
+  section: JupSection,
+  occupied: OccupiedSectionPick[],
+  currentCourseNumber?: string,
+): boolean {
+  if (occupied.length === 0) return false;
+  const occSlots = slotsFromOccupiedExcludingCourse(occupied, currentCourseNumber);
+  if (occSlots.length === 0) return false;
+  return sectionConflictsSlots(section, occSlots);
+}
+
+function courseIsOnPlan(courseId: string, occupied: OccupiedSectionPick[]): boolean {
+  const id = normalizeCourseId(courseId);
+  return occupied.some((o) => normalizeCourseId(o.courseNumber) === id);
+}
+
+/**
+ * Drops courses that are not already on the plan and have no section with open seats
+ * whose meetings avoid all times in `occupied` (same-day overlap on M/T/W/R/F).
+ * Courses already listed in `occupied` are always kept. Empty `occupied` is a no-op.
+ */
+export function removeOccupiedTimes<T extends { course_id: string; sections: JupSection[] }>(
+  courses: T[],
+  occupied: OccupiedSectionPick[],
+): T[] {
+  if (occupied.length === 0) return courses;
+  const occSlots = slotsFromOccupied(occupied);
+  if (occSlots.length === 0) return courses;
+
+  return courses.filter((c) => {
+    if (courseIsOnPlan(c.course_id, occupied)) return true;
+    return c.sections.some(
+      (s) => s.open_seats > 0 && !sectionConflictsSlots(s, occSlots),
+    );
   });
 }
