@@ -224,21 +224,11 @@ function buildUnlockCounts(prereqSources: Course[]): Map<string, number> {
   return counts;
 }
 
-function avgProfMetrics(profs: SortableCSCourse['profs']): {
-  stars: number | null;
-  gpa: number | null;
-} {
-  if (!profs?.length) return { stars: null, gpa: null };
-  const withStars = profs.filter((p) => p.stars > 0);
+function avgGpaFromProfs(profs: SortableCSCourse['profs']): number | null {
+  if (!profs?.length) return null;
   const withGpa = profs.filter((p) => p.gpa > 0);
-  return {
-    stars: withStars.length
-      ? withStars.reduce((s, p) => s + p.stars, 0) / withStars.length
-      : null,
-    gpa: withGpa.length
-      ? withGpa.reduce((s, p) => s + p.gpa, 0) / withGpa.length
-      : null,
-  };
+  if (!withGpa.length) return null;
+  return withGpa.reduce((s, p) => s + p.gpa, 0) / withGpa.length;
 }
 
 function unlockSortKey(c: SortableCSCourse, counts: Map<string, number>): number {
@@ -254,13 +244,8 @@ function sortCSCourseTier<T extends SortableCSCourse>(
     const ua = unlockSortKey(a, unlockCounts);
     const ub = unlockSortKey(b, unlockCounts);
     if (ub !== ua) return ub - ua;
-    const ra = avgProfMetrics(a.profs);
-    const rb = avgProfMetrics(b.profs);
-    const sa = ra.stars ?? -Infinity;
-    const sb = rb.stars ?? -Infinity;
-    if (sb !== sa) return sb - sa;
-    const ga = ra.gpa ?? -Infinity;
-    const gb = rb.gpa ?? -Infinity;
+    const ga = avgGpaFromProfs(a.profs) ?? -Infinity;
+    const gb = avgGpaFromProfs(b.profs) ?? -Infinity;
     if (gb !== ga) return gb - ga;
     return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
   });
@@ -269,7 +254,7 @@ function sortCSCourseTier<T extends SortableCSCourse>(
 /**
  * Splits CS-ish courses into lower / upper / electives / other, then sorts each bucket by:
  * 1) how many other courses list this id as a prerequisite (or `unlocks.length` if provided),
- * 2) average professor rating (stars), 3) average GPA. Missing ratings sort after real values.
+ * 2) average GPA from `profs` when present. Missing GPA values sort after real values, then `course_id`.
  *
  * Pass `catalogForUnlocks` (e.g. full CMSC list from the API) so unlock counts reflect the
  * whole catalog, not only the filtered `courses` list.
@@ -331,9 +316,9 @@ export function countGenEdTagsSatisfied(
 }
 
 /**
- * Orders courses by how many `missingTags` they satisfy (desc), then average
- * professor stars and GPA when `profs` is present on an item. Matches
- * `courseMatchesGenEds`-style tag strings (split on whitespace/commas, uppercase).
+ * Orders courses by how many `missingTags` they satisfy (desc), then average GPA
+ * from `profs` when present. Matches `courseMatchesGenEds`-style tag strings
+ * (split on whitespace/commas, uppercase).
  */
 export function sortGenEdCourses<T extends GenEdSortable>(courses: T[], genEdTags: string[]): T[] {
   return [...courses].sort((a, b) => {
@@ -342,13 +327,8 @@ export function sortGenEdCourses<T extends GenEdSortable>(courses: T[], genEdTag
     if (cb !== ca) return cb - ca;
     const pa = Array.isArray(a.profs) ? a.profs : undefined;
     const pb = Array.isArray(b.profs) ? b.profs : undefined;
-    const ra = avgProfMetrics(pa);
-    const rb = avgProfMetrics(pb);
-    const sa = ra.stars ?? -Infinity;
-    const sb = rb.stars ?? -Infinity;
-    if (sb !== sa) return sb - sa;
-    const ga = ra.gpa ?? -Infinity;
-    const gb = rb.gpa ?? -Infinity;
+    const ga = avgGpaFromProfs(pa) ?? -Infinity;
+    const gb = avgGpaFromProfs(pb) ?? -Infinity;
     if (gb !== ga) return gb - ga;
     return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
   });

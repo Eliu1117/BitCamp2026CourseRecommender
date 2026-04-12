@@ -321,7 +321,7 @@ export default function CoursesPage() {
                       {list.length > TOP_GEN_ED_COURSES_PER_TAG && (
                         <p className="text-xs text-zinc-500">
                           Top {TOP_GEN_ED_COURSES_PER_TAG} of {list.length} (most overlapping missing
-                          tags, then instructor ratings).
+                          tags, then average GPA).
                         </p>
                       )}
                       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
