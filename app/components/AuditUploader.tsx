@@ -24,6 +24,7 @@ export default function AuditUploader() {
       setLoading(true);
       const parsed = parseAudit(html);
       sessionStorage.setItem('auditResult', JSON.stringify(parsed));
+      console.log("I AM SHOWERING");
       router.push('/courses');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to parse audit.');

@@ -1,4 +1,4 @@
-import { umdio, Course, getJupSections } from '@/lib/api';
+import { umdio, Course, getJupSections, type JupSection } from '@/lib/api';
 
 export async function getAllCoursesByAttribute(params?: {dept_id?: string; semester?: number; credits?: number; }): Promise<Course[]> {
     const results: Course[] = [];
@@ -19,17 +19,17 @@ export async function getAllCoursesByAttribute(params?: {dept_id?: string; semes
     return results;
   }
 
- export async function getAllCoursesByGenEd(tag: string) {
-    const results = [];
-    let page = 1;
-    while (true) {
-      const batch = await umdio.courses.list({ gen_ed: tag, per_page: 100, page });
-      results.push(...batch);
-      if (batch.length < 100) break;
-      page++;
-    }
-    return results;
+export async function getAllCoursesByGenEd(tag: string): Promise<Course[]> {
+  const results: Course[] = [];
+  let page = 1;
+  while (true) {
+    const batch = await umdio.courses.list({ gen_ed: tag, per_page: 100, page });
+    results.push(...batch);
+    if (batch.length < 100) break;
+    page++;
   }
+  return results;
+}
 
  export function courseMatchesGenEds(course: Course, input: string): boolean {
     const tags = input.toUpperCase().split(/[\s,]+/).filter(Boolean);
@@ -54,6 +54,19 @@ export async function getSectionsByCourse(course_id: string, semester: string) {
         return [];  
       }
     }
+
+/**
+ * Drops courses with no open seats across all attached Jupiter sections.
+ * Courses with an empty `sections` array sum to 0 open seats and are removed.
+ */
+export function removeCoursesWithNoOpenSeats<T extends { sections: JupSection[] }>(
+  courses: T[],
+): T[] {
+  return courses.filter((c) => {
+    const open = c.sections.reduce((sum, s) => sum + s.open_seats, 0);
+    return open > 0;
+  });
+}
 
 /** Catalog-style course ids embedded in umd.io prerequisite prose (e.g. CMSC131). */
 const COURSE_ID_IN_PREREQ_TEXT = /\b[A-Z]{4}\d{3}\b/g;
@@ -150,11 +163,40 @@ function normalizeCourseId(id: string): string {
   return id.replace(/\s+/g, '').toUpperCase();
 }
 
+/** Catalog courses whose `relationships.prereqs` text lists `courseId` (same parsing as eligibility). */
+export function getDownstreamCourseIds(catalog: Course[], courseId: string): string[] {
+  const target = normalizeCourseId(courseId);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of catalog) {
+    const needed = extractPrereqCourseIds(c.relationships?.prereqs);
+    if (!needed.some((id) => normalizeCourseId(id) === target)) continue;
+    const key = normalizeCourseId(c.course_id);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c.course_id);
+  }
+  out.sort((a, b) => normalizeCourseId(a).localeCompare(normalizeCourseId(b)));
+  return out;
+}
+
 function parseDeptNumber(courseId: string): { dept: string; num: number } | null {
   const n = normalizeCourseId(courseId);
   const m = n.match(/^([A-Z]{4})(\d{3})$/);
   if (!m) return null;
   return { dept: m[1], num: Number(m[2]) };
+}
+
+/**
+ * Drops courses whose catalog id is `DEPT` + three digits with number ≥ 500 (graduate).
+ * Ids that do not match that pattern are kept.
+ */
+export function removeGraduateLevelCourses<T extends { course_id: string }>(courses: T[]): T[] {
+  return courses.filter((c) => {
+    const p = parseDeptNumber(c.course_id);
+    if (p === null) return true;
+    return p.num < 500;
+  });
 }
 
 /**
@@ -182,21 +224,11 @@ function buildUnlockCounts(prereqSources: Course[]): Map<string, number> {
   return counts;
 }
 
-function avgProfMetrics(profs: SortableCSCourse['profs']): {
-  stars: number | null;
-  gpa: number | null;
-} {
-  if (!profs?.length) return { stars: null, gpa: null };
-  const withStars = profs.filter((p) => p.stars > 0);
+function avgGpaFromProfs(profs: SortableCSCourse['profs']): number | null {
+  if (!profs?.length) return null;
   const withGpa = profs.filter((p) => p.gpa > 0);
-  return {
-    stars: withStars.length
-      ? withStars.reduce((s, p) => s + p.stars, 0) / withStars.length
-      : null,
-    gpa: withGpa.length
-      ? withGpa.reduce((s, p) => s + p.gpa, 0) / withGpa.length
-      : null,
-  };
+  if (!withGpa.length) return null;
+  return withGpa.reduce((s, p) => s + p.gpa, 0) / withGpa.length;
 }
 
 function unlockSortKey(c: SortableCSCourse, counts: Map<string, number>): number {
@@ -212,13 +244,8 @@ function sortCSCourseTier<T extends SortableCSCourse>(
     const ua = unlockSortKey(a, unlockCounts);
     const ub = unlockSortKey(b, unlockCounts);
     if (ub !== ua) return ub - ua;
-    const ra = avgProfMetrics(a.profs);
-    const rb = avgProfMetrics(b.profs);
-    const sa = ra.stars ?? -Infinity;
-    const sb = rb.stars ?? -Infinity;
-    if (sb !== sa) return sb - sa;
-    const ga = ra.gpa ?? -Infinity;
-    const gb = rb.gpa ?? -Infinity;
+    const ga = avgGpaFromProfs(a.profs) ?? -Infinity;
+    const gb = avgGpaFromProfs(b.profs) ?? -Infinity;
     if (gb !== ga) return gb - ga;
     return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
   });
@@ -227,7 +254,7 @@ function sortCSCourseTier<T extends SortableCSCourse>(
 /**
  * Splits CS-ish courses into lower / upper / electives / other, then sorts each bucket by:
  * 1) how many other courses list this id as a prerequisite (or `unlocks.length` if provided),
- * 2) average professor rating (stars), 3) average GPA. Missing ratings sort after real values.
+ * 2) average GPA from `profs` when present. Missing GPA values sort after real values, then `course_id`.
  *
  * Pass `catalogForUnlocks` (e.g. full CMSC list from the API) so unlock counts reflect the
  * whole catalog, not only the filtered `courses` list.
@@ -262,7 +289,8 @@ export function sortCSCourses<T extends SortableCSCourse>(
   return buckets;
 }
 
-export type SortableGenEdCourse = Course & {
+/** Minimal shape for `sortGenEdCourses` (works with `Course` or `CourseWithSections`-style rows). */
+export type GenEdSortable = Pick<Course, 'course_id' | 'gen_ed'> & {
   profs?: { stars: number; gpa: number }[];
 };
 
@@ -277,7 +305,10 @@ function normalizeGenEdTagSet(tags: string[]): Set<string> {
 }
 
 /** How many of the still-needed gen-ed labels this course carries. */
-export function countGenEdTagsSatisfied(course: Course, missingTags: string[]): number {
+export function countGenEdTagsSatisfied(
+  course: Pick<Course, 'gen_ed'>,
+  missingTags: string[],
+): number {
   const needed = normalizeGenEdTagSet(missingTags);
   if (needed.size === 0) return 0;
   const offered = (course.gen_ed ?? []).flat().map((x) => x.toUpperCase());
@@ -285,30 +316,19 @@ export function countGenEdTagsSatisfied(course: Course, missingTags: string[]): 
 }
 
 /**
- * Orders courses by how many `missingTags` they satisfy (desc), then average
- * professor stars and GPA when `profs` is present on an item. Matches
- * `courseMatchesGenEds`-style tag strings (split on whitespace/commas, uppercase).
+ * Orders courses by how many `missingTags` they satisfy (desc), then average GPA
+ * from `profs` when present. Matches `courseMatchesGenEds`-style tag strings
+ * (split on whitespace/commas, uppercase).
  */
-export function sortGenEdCourses<T extends Course>(courses: T[], genEdTags: string[]): T[] {
+export function sortGenEdCourses<T extends GenEdSortable>(courses: T[], genEdTags: string[]): T[] {
   return [...courses].sort((a, b) => {
     const ca = countGenEdTagsSatisfied(a, genEdTags);
     const cb = countGenEdTagsSatisfied(b, genEdTags);
     if (cb !== ca) return cb - ca;
-    const pa =
-      'profs' in a && Array.isArray((a as SortableGenEdCourse).profs)
-        ? (a as SortableGenEdCourse).profs
-        : undefined;
-    const pb =
-      'profs' in b && Array.isArray((b as SortableGenEdCourse).profs)
-        ? (b as SortableGenEdCourse).profs
-        : undefined;
-    const ra = avgProfMetrics(pa);
-    const rb = avgProfMetrics(pb);
-    const sa = ra.stars ?? -Infinity;
-    const sb = rb.stars ?? -Infinity;
-    if (sb !== sa) return sb - sa;
-    const ga = ra.gpa ?? -Infinity;
-    const gb = rb.gpa ?? -Infinity;
+    const pa = Array.isArray(a.profs) ? a.profs : undefined;
+    const pb = Array.isArray(b.profs) ? b.profs : undefined;
+    const ga = avgGpaFromProfs(pa) ?? -Infinity;
+    const gb = avgGpaFromProfs(pb) ?? -Infinity;
     if (gb !== ga) return gb - ga;
     return normalizeCourseId(a.course_id).localeCompare(normalizeCourseId(b.course_id));
   });

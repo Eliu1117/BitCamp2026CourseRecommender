@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Course } from "@/lib/api";
+import type { Course, JupSection } from "@/lib/api";
 import {
   countGenEdTagsSatisfied,
   getCSCourseTier,
+  getDownstreamCourseIds,
+  removeCoursesWithNoOpenSeats,
+  removeGraduateLevelCourses,
   removeIneligibleCourses,
   sortCSCourses,
   sortGenEdCourses,
@@ -19,6 +22,19 @@ function emptyRelationships(
     additional_info: null,
     also_offered_as: null,
     credit_granted_for: null,
+  };
+}
+
+function jupSection(open_seats: number, total_seats = 10): JupSection {
+  return {
+    course_code: "X",
+    sec_code: "0101",
+    instructors: [],
+    meetings: [],
+    open_seats,
+    total_seats,
+    waitlist: 0,
+    holdfile: null,
   };
 }
 
@@ -97,6 +113,57 @@ describe("removeIneligibleCourses", () => {
   });
 });
 
+describe("removeCoursesWithNoOpenSeats", () => {
+  it("removes courses whose sections have zero open seats total", () => {
+    const a = { ...makeCourse("CMSC216"), sections: [jupSection(0), jupSection(0)] };
+    const b = { ...makeCourse("CMSC330"), sections: [jupSection(2)] };
+    expect(
+      removeCoursesWithNoOpenSeats([a, b]).map((c) => c.course_id),
+    ).toEqual(["CMSC330"]);
+  });
+
+  it("removes courses with no sections", () => {
+    const x = { ...makeCourse("CMSC132"), sections: [] as JupSection[] };
+    expect(removeCoursesWithNoOpenSeats([x])).toHaveLength(0);
+  });
+});
+
+describe("removeGraduateLevelCourses", () => {
+  it("removes 500-level and higher catalog numbers", () => {
+    const out = removeGraduateLevelCourses([
+      makeCourse("CMSC401"),
+      makeCourse("CMSC500"),
+      makeCourse("CMSC698"),
+    ]);
+    expect(out.map((c) => c.course_id)).toEqual(["CMSC401"]);
+  });
+
+  it("keeps ids that do not match DEPT+NNN", () => {
+    expect(removeGraduateLevelCourses([makeCourse("BAD")])).toHaveLength(1);
+  });
+});
+
+describe("getDownstreamCourseIds", () => {
+  it("returns catalog courses whose prereq text lists the target id", () => {
+    const catalog = [
+      makeCourse("CMSC216", "Minimum grade of C- in CMSC132"),
+      makeCourse("CMSC330", "CMSC216 and CMSC250"),
+    ];
+    expect(getDownstreamCourseIds(catalog, "CMSC132")).toEqual(["CMSC216"]);
+  });
+
+  it("dedupes and sorts by normalized course id", () => {
+    const catalog: Course[] = [
+      makeCourse("CMSC330", "CMSC216"),
+      makeCourse("CMSC351", "CMSC216"),
+    ];
+    expect(getDownstreamCourseIds(catalog, "CMSC216")).toEqual([
+      "CMSC330",
+      "CMSC351",
+    ]);
+  });
+});
+
 describe("sortCSCourses / getCSCourseTier", () => {
   it("classifies lower, upper, elective, and other CMSC courses", () => {
     expect(getCSCourseTier("CMSC131")).toBe("lower");
@@ -122,7 +189,7 @@ describe("sortCSCourses / getCSCourseTier", () => {
     expect(sorted.other.map((c) => c.course_id)).toEqual(["CMSC122"]);
   });
 
-  it("sorts by unlock count from catalog (desc), then stars, then gpa", () => {
+  it("sorts by unlock count from catalog (desc), then gpa", () => {
     const catalog = [
       makeCourse("CMSC420", "CMSC132"),
       makeCourse("CMSC421", "CMSC132"),
@@ -143,7 +210,7 @@ describe("sortCSCourses / getCSCourseTier", () => {
     expect(lower.map((c) => c.course_id)).toEqual(["CMSC132", "CMSC131"]);
   });
 
-  it("breaks ties on stars then gpa when unlock counts match", () => {
+  it("breaks ties on gpa when unlock counts match", () => {
     const items = [
       { course_id: "CMSC131", profs: [{ stars: 3, gpa: 3.0 }] },
       { course_id: "CMSC132", profs: [{ stars: 4, gpa: 2.0 }] },
@@ -152,8 +219,8 @@ describe("sortCSCourses / getCSCourseTier", () => {
     const { lower } = sortCSCourses(items, { catalogForUnlocks: [] });
     expect(lower.map((c) => c.course_id)).toEqual([
       "CMSC216",
-      "CMSC132",
       "CMSC131",
+      "CMSC132",
     ]);
   });
 
@@ -188,35 +255,35 @@ describe("sortGenEdCourses / countGenEdTagsSatisfied", () => {
     expect(out.map((c) => c.course_id)).toEqual(["TWO", "ONE"]);
   });
 
-  it("breaks ties with stars then gpa", () => {
+  it("breaks ties on average gpa (stars ignored)", () => {
     const missing = ["DSHU"];
     const items = [
       {
         ...makeCourse("LOW", null, { gen_ed: [["DSHU"]] }),
-        profs: [{ stars: 3, gpa: 3.5 }],
+        profs: [{ stars: 5, gpa: 2.0 }],
       },
       {
         ...makeCourse("HIGH", null, { gen_ed: [["DSHU"]] }),
-        profs: [{ stars: 5, gpa: 2.0 }],
+        profs: [{ stars: 1, gpa: 3.5 }],
       },
     ];
     const out = sortGenEdCourses(items, missing);
     expect(out.map((c) => c.course_id)).toEqual(["HIGH", "LOW"]);
   });
 
-  it("uses gpa when stars tie", () => {
+  it("breaks remaining ties on course_id", () => {
     const missing = ["DSHU"];
     const items = [
       {
-        ...makeCourse("A", null, { gen_ed: [["DSHU"]] }),
-        profs: [{ stars: 4, gpa: 2.0 }],
+        ...makeCourse("ZEBRA", null, { gen_ed: [["DSHU"]] }),
+        profs: [{ stars: 4, gpa: 3.0 }],
       },
       {
-        ...makeCourse("B", null, { gen_ed: [["DSHU"]] }),
-        profs: [{ stars: 4, gpa: 3.5 }],
+        ...makeCourse("ALPHA", null, { gen_ed: [["DSHU"]] }),
+        profs: [{ stars: 4, gpa: 3.0 }],
       },
     ];
     const out = sortGenEdCourses(items, missing);
-    expect(out.map((c) => c.course_id)).toEqual(["B", "A"]);
+    expect(out.map((c) => c.course_id)).toEqual(["ALPHA", "ZEBRA"]);
   });
 });

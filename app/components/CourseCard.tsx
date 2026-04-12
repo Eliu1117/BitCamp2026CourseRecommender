@@ -4,6 +4,10 @@ import { useState } from 'react';
 import CourseDetailPopup from './CourseDetailPopup';
 import type { JupSection } from '@/lib/api';
 
+// #region agent log
+let __agentCourseCardUnlockLog = 0;
+// #endregion
+
 export type Prof = {
   name: string;
   stars: number;
@@ -25,6 +29,25 @@ export type CourseCardProps = {
 export default function CourseCard(props: CourseCardProps) {
   const { courseNumber, credits, title, profs, unlocks, sections = [], genEdTags = [] } = props;
   const [popupOpen, setPopupOpen] = useState(false);
+
+  // #region agent log
+  if (__agentCourseCardUnlockLog < 4) {
+    __agentCourseCardUnlockLog++;
+    fetch('http://127.0.0.1:7283/ingest/f76f60ef-6faa-4524-b568-c2174a389ed1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '486541' },
+      body: JSON.stringify({
+        sessionId: '486541',
+        runId: 'post-fix',
+        hypothesisId: 'D',
+        location: 'CourseCard.tsx:render',
+        message: 'CourseCard received unlocks',
+        data: { courseNumber, unlocksLength: unlocks.length },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+  }
+  // #endregion
 
   const n = profs.filter(p => p.stars > 0).length;
   const avgStars = n > 0 ? profs.filter(p => p.stars > 0).reduce((sum, p) => sum + p.stars, 0) / n : null;
