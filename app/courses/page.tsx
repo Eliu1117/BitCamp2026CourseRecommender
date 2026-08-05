@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { ClipboardList, X } from 'lucide-react';
+import { toast } from 'sonner';
+
 import { type AuditResult } from '@/lib/parseAudit';
 import { formatJupiterMeeting, getPlanetTerpCourse, type Course, type JupSection } from '@/lib/api';
 import {
@@ -20,6 +24,23 @@ import {
   type SortedCSCourses,
 } from '@/lib/courses';
 import CourseCard, { type CourseCardProps } from '@/app/components/CourseCard';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 
 const JUPITERP = 'https://api.jupiterp.com';
 const SEMESTER = '202608';
@@ -29,14 +50,22 @@ interface CourseWithSections extends Omit<Course, 'sections'> {
   sections: JupSection[];
 }
 
-async function attachJupSections(course: Course): Promise<CourseWithSections> {
+async function attachJupSections(
+  course: Course,
+  onError?: () => void,
+): Promise<CourseWithSections> {
   try {
     const sRes = await fetch(
       `${JUPITERP}/v0/sections?courseCodes=${course.course_id}&semester=${SEMESTER}`,
     );
-    const sections: JupSection[] = sRes.ok ? await sRes.json() : [];
+    if (!sRes.ok) {
+      onError?.();
+      return { ...course, sections: [] };
+    }
+    const sections: JupSection[] = await sRes.json();
     return { ...course, sections };
   } catch {
+    onError?.();
     return { ...course, sections: [] };
   }
 }
@@ -46,11 +75,14 @@ async function loadGenEdCoursesForTag(
   completedIds: string[],
   inProgressIds: string[],
   allMissingTags: string[],
+  onSectionError?: () => void,
 ): Promise<CourseWithSections[]> {
   const courses = await getAllCoursesByGenEd(tag);
   const eligible = removeIneligibleCourses(courses, completedIds, inProgressIds);
   const undergrad = removeGraduateLevelCourses(eligible);
-  const withSections = await Promise.all(undergrad.map(attachJupSections));
+  const withSections = await Promise.all(
+    undergrad.map((c) => attachJupSections(c, onSectionError)),
+  );
   const withOpenSeats = removeCoursesWithNoOpenSeats(withSections);
   return sortGenEdCourses(withOpenSeats, allMissingTags);
 }
@@ -58,56 +90,20 @@ async function loadGenEdCoursesForTag(
 async function loadSortedCSCoursesWithSections(
   completedIds: string[],
   inProgressIds: string[],
+  onSectionError?: () => void,
 ): Promise<{
   buckets: SortedCSCourses<CourseWithSections>;
   catalog: Course[];
 }> {
   const catalogRaw = await getAllCoursesByAttribute({ dept_id: 'CMSC' });
   const catalog = removeGraduateLevelCourses(catalogRaw);
-  // #region agent log
-  {
-    const COURSE_ID_IN_PREREQ = /\b[A-Z]{4}\d{3}\b/g;
-    const norm = (s: string) => s.replace(/\s+/g, '').toUpperCase();
-    const withPrereqText = catalog.filter(
-      (c) => (c.relationships?.prereqs?.length ?? 0) > 0,
-    ).length;
-    const downstreamFrom = (target: string) =>
-      catalog
-        .filter((c) => {
-          const p = c.relationships?.prereqs;
-          if (!p) return false;
-          const m = p.match(COURSE_ID_IN_PREREQ);
-          return (m ?? []).some((id) => norm(id) === norm(target));
-        })
-        .map((c) => c.course_id);
-    const d132 = downstreamFrom('CMSC132');
-    const sampleIds = catalog.slice(0, 5).map((c) => c.course_id);
-    fetch('http://127.0.0.1:7283/ingest/f76f60ef-6faa-4524-b568-c2174a389ed1', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '486541' },
-      body: JSON.stringify({
-        sessionId: '486541',
-        runId: 'post-fix',
-        hypothesisId: 'B',
-        location: 'courses/page.tsx:loadSortedCSCoursesWithSections',
-        message: 'catalog prereq + reverse-lookup probe',
-        data: {
-          catalogLen: catalog.length,
-          coursesWithPrereqText: withPrereqText,
-          sampleCourseIdFormats: sampleIds,
-          downstreamCountCMSC132: d132.length,
-          downstreamSampleCMSC132: d132.slice(0, 10),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
   const eligible = removeIneligibleCourses(catalog, completedIds, inProgressIds);
   const sorted = sortCSCourses(eligible, { catalogForUnlocks: catalog });
 
   const withSections = async (courses: Course[]) => {
-    const attached = await Promise.all(courses.map(attachJupSections));
+    const attached = await Promise.all(
+      courses.map((c) => attachJupSections(c, onSectionError)),
+    );
     return removeCoursesWithNoOpenSeats(attached);
   };
 
@@ -137,10 +133,6 @@ function collectNormalizedCourseIds(
   return [...s];
 }
 
-// #region agent log
-let __agentUnlockPropsLogCount = 0;
-// #endregion
-
 function toCourseCardProps(
   course: CourseWithSections,
   cmscCatalog: Course[] | null,
@@ -150,30 +142,6 @@ function toCourseCardProps(
     cmscCatalog && cmscCatalog.length > 0
       ? getDownstreamCourseIds(cmscCatalog, course.course_id)
       : [];
-  // #region agent log
-  if (__agentUnlockPropsLogCount < 6) {
-    __agentUnlockPropsLogCount++;
-    fetch('http://127.0.0.1:7283/ingest/f76f60ef-6faa-4524-b568-c2174a389ed1', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '486541' },
-      body: JSON.stringify({
-        sessionId: '486541',
-        runId: 'post-fix',
-        hypothesisId: 'A',
-        location: 'courses/page.tsx:toCourseCardProps',
-        message: 'props passed to CourseCard (unlocks source)',
-        data: {
-          course_id: course.course_id,
-          unlocksLength: unlocks.length,
-          unlocksSource:
-            cmscCatalog && cmscCatalog.length > 0 ? 'getDownstreamCourseIds' : 'no_catalog',
-          unlocksSample: unlocks.slice(0, 5),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
   const uniqueInstructors = Array.from(
     new Set(course.sections.flatMap(s => s.instructors))
   );
@@ -251,6 +219,88 @@ type PlannedSection = {
   meetings: string[];
 };
 
+function CourseCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-baseline justify-between gap-2">
+          <Skeleton className="h-4 w-16" />
+        </div>
+        <Skeleton className="h-5 w-3/4" />
+        <Skeleton className="h-4 w-10" />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+        </div>
+        <Skeleton className="h-9 w-full" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function CourseGridSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      {Array.from({ length: count }).map((_, i) => (
+        <CourseCardSkeleton key={i} />
+      ))}
+    </div>
+  );
+}
+
+function SelectedSectionsList({
+  plannedSections,
+  removePlannedCourse,
+}: {
+  plannedSections: PlannedSection[];
+  removePlannedCourse: (courseNumber: string) => void;
+}) {
+  if (plannedSections.length === 0) {
+    return (
+      <p className="text-sm leading-snug text-muted-foreground">
+        None yet. Open a course and pick a section with open seats.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="max-h-[min(60vh,28rem)] space-y-3 overflow-y-auto pr-0.5">
+      {plannedSections.map((row) => (
+        <li key={row.courseNumber} className="rounded-lg border border-border p-2">
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 font-mono text-sm font-semibold">{row.courseNumber}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => removePlannedCourse(row.courseNumber)}
+              className="h-auto shrink-0 px-2 py-0.5 text-xs text-destructive hover:text-destructive"
+              aria-label={`Remove ${row.courseNumber} from selected sections`}
+            >
+              Remove
+            </Button>
+          </div>
+          <p className="line-clamp-2 text-xs text-muted-foreground">{row.title}</p>
+          <p className="mt-1 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-400">
+            {row.sectionCode}
+          </p>
+          {row.meetings.length > 0 ? (
+            <ul className="mt-1.5 space-y-0.5 border-t border-border pt-1.5 text-xs text-muted-foreground">
+              {row.meetings.map((m, i) => (
+                <li key={i}>{formatJupiterMeeting(m)}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">No meeting times listed.</p>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function CoursesPage() {
   const router = useRouter();
   const [audit, setAudit] = useState<AuditResult | null>(null);
@@ -258,7 +308,9 @@ export default function CoursesPage() {
   const [csBuckets, setCsBuckets] = useState<SortedCSCourses<CourseWithSections> | null>(null);
   const [csCatalog, setCsCatalog] = useState<Course[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [plannedSections, setPlannedSections] = useState<PlannedSection[]>([]);
+  const [selectionsSheetOpen, setSelectionsSheetOpen] = useState(false);
   const [planetTerpGpaByCourse, setPlanetTerpGpaByCourse] = useState<
     Record<string, number>
   >({});
@@ -285,6 +337,7 @@ export default function CoursesPage() {
         }
         return [...prev, row];
       });
+      toast.success(`${pick.courseNumber} section ${pick.sectionCode} added to your plan`);
     },
     [],
   );
@@ -329,11 +382,21 @@ export default function CoursesPage() {
       return;
     }
     const parsed = JSON.parse(raw) as AuditResult;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reads sessionStorage (external system); this hand-off is replaced by Context/Zustand in Phase 2.
     setAudit(parsed);
 
     const missingGenEds = parsed.gen_ed.unfulfilled;
     const completedIds = parsed.courses.completed_ids;
     const inProgressIds = parsed.courses.in_progress_ids;
+
+    let sectionErrorShown = false;
+    const notifySectionError = () => {
+      if (sectionErrorShown) return;
+      sectionErrorShown = true;
+      toast.warning('Some section data could not be loaded', {
+        description: 'JupiterP may be temporarily unavailable — showing what we could fetch.',
+      });
+    };
 
     const genEdTask =
       missingGenEds.length === 0
@@ -345,55 +408,67 @@ export default function CoursesPage() {
                 completedIds,
                 inProgressIds,
                 missingGenEds,
+                notifySectionError,
               );
               return [tag, courses] as [string, CourseWithSections[]];
             }),
           ).then((entries) => Object.fromEntries(entries));
 
     Promise.all([
-      loadSortedCSCoursesWithSections(completedIds, inProgressIds),
+      loadSortedCSCoursesWithSections(completedIds, inProgressIds, notifySectionError),
       genEdTask,
-    ]).then(([cs, genEdMap]) => {
-      setCsBuckets(cs.buckets);
-      setCsCatalog(cs.catalog);
-      setCoursesByGenEd(genEdMap);
-      setPlanetTerpGpaByCourse({});
-      setLoading(false);
+    ])
+      .then(([cs, genEdMap]) => {
+        setCsBuckets(cs.buckets);
+        setCsCatalog(cs.catalog);
+        setCoursesByGenEd(genEdMap);
+        setPlanetTerpGpaByCourse({});
+        setLoading(false);
 
-      const ids = collectNormalizedCourseIds(cs.buckets, genEdMap);
-      if (ids.length === 0) return;
+        const ids = collectNormalizedCourseIds(cs.buckets, genEdMap);
+        if (ids.length === 0) return;
 
-      Promise.all(
-        ids.map(async (nid) => {
-          const data = await getPlanetTerpCourse(nid);
-          const g = data?.average_gpa;
-          return [nid, typeof g === 'number' && g > 0 ? g : null] as const;
-        }),
-      ).then((pairs) => {
-        const map = new Map<string, number>();
-        for (const [nid, g] of pairs) {
-          if (g != null) map.set(nid, g);
-        }
-        if (map.size === 0) return;
-        setPlanetTerpGpaByCourse(Object.fromEntries(map));
-        setCsBuckets((prev) =>
-          prev ? resortCSCoursesByUnlocksAndGpa(prev, cs.catalog, map) : prev,
-        );
-        setCoursesByGenEd((prev) => {
-          const next: Record<string, CourseWithSections[]> = {};
-          for (const [tag, list] of Object.entries(prev)) {
-            next[tag] = sortGenEdCoursesWithPlanetTerpGpa(list, missingGenEds, map);
+        Promise.all(
+          ids.map(async (nid) => {
+            const data = await getPlanetTerpCourse(nid);
+            const g = data?.average_gpa;
+            return [nid, typeof g === 'number' && g > 0 ? g : null] as const;
+          }),
+        ).then((pairs) => {
+          const map = new Map<string, number>();
+          for (const [nid, g] of pairs) {
+            if (g != null) map.set(nid, g);
           }
-          return next;
+          if (map.size === 0) return;
+          setPlanetTerpGpaByCourse(Object.fromEntries(map));
+          setCsBuckets((prev) =>
+            prev ? resortCSCoursesByUnlocksAndGpa(prev, cs.catalog, map) : prev,
+          );
+          setCoursesByGenEd((prev) => {
+            const next: Record<string, CourseWithSections[]> = {};
+            for (const [tag, list] of Object.entries(prev)) {
+              next[tag] = sortGenEdCoursesWithPlanetTerpGpa(list, missingGenEds, map);
+            }
+            return next;
+          });
         });
+      })
+      .catch((e: unknown) => {
+        const message =
+          e instanceof Error ? e.message : 'Failed to load course recommendations.';
+        setLoadError(message);
+        setLoading(false);
+        toast.error('Could not load course recommendations', { description: message });
       });
-    });
   }, [router]);
 
   if (!audit) {
     return (
-      <main className="px-6 py-12">
-        <p className="text-zinc-400">Loading audit data...</p>
+      <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6">
+        <div className="space-y-3">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-4 w-96 max-w-full" />
+        </div>
       </main>
     );
   }
@@ -407,61 +482,57 @@ export default function CoursesPage() {
       csBucketsDisplay.electives.length;
 
   return (
-    <main className="relative px-6 py-12 space-y-10">
-      <aside
-        className="fixed top-4 right-4 z-40 w-[min(calc(100vw-2rem),18rem)] rounded-xl border border-zinc-200 bg-white/95 p-4 text-sm shadow-lg backdrop-blur-sm dark:border-zinc-700 dark:bg-zinc-950/95"
+    <main className="relative mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:pr-[19rem]">
+      {/* Desktop sticky selections panel */}
+      <Card
+        className="fixed top-4 right-4 z-40 hidden w-[18rem] p-0 shadow-lg backdrop-blur-sm lg:block"
         aria-label="Selected course sections"
       >
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          Selected sections
-        </h2>
-        {plannedSections.length === 0 ? (
-          <p className="mt-2 leading-snug text-zinc-500 dark:text-zinc-400">
-            None yet. Open a course and pick a section with open seats.
-          </p>
-        ) : (
-          <ul className="mt-3 max-h-[min(50vh,20rem)] space-y-3 overflow-y-auto pr-0.5">
-            {plannedSections.map((row) => (
-              <li
-                key={row.courseNumber}
-                className="rounded-lg border border-zinc-100 p-2 dark:border-zinc-800"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    {row.courseNumber}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => removePlannedCourse(row.courseNumber)}
-                    className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/50"
-                    aria-label={`Remove ${row.courseNumber} from selected sections`}
-                  >
-                    Remove
-                  </button>
-                </div>
-                <p className="line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">{row.title}</p>
-                <p className="mt-1 font-mono text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                  {row.sectionCode}
-                </p>
-                {row.meetings.length > 0 ? (
-                  <ul className="mt-1.5 space-y-0.5 border-t border-zinc-100 pt-1.5 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
-                    {row.meetings.map((m, i) => (
-                      <li key={i}>{formatJupiterMeeting(m)}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-1 text-xs text-zinc-400">No meeting times listed.</p>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </aside>
+        <CardHeader>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Selected sections
+          </h2>
+        </CardHeader>
+        <CardContent>
+          <SelectedSectionsList
+            plannedSections={plannedSections}
+            removePlannedCourse={removePlannedCourse}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Mobile/tablet floating trigger + sheet */}
+      <div className="fixed bottom-4 right-4 z-40 lg:hidden">
+        <Sheet open={selectionsSheetOpen} onOpenChange={setSelectionsSheetOpen}>
+          <SheetTrigger asChild>
+            <Button size="lg" className="shadow-lg">
+              <ClipboardList />
+              Selections
+              {plannedSections.length > 0 && (
+                <Badge variant="secondary" className="ml-1">
+                  {plannedSections.length}
+                </Badge>
+              )}
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[80vh]">
+            <SheetHeader>
+              <SheetTitle>Selected sections</SheetTitle>
+            </SheetHeader>
+            <div className="overflow-y-auto px-4 pb-4">
+              <SelectedSectionsList
+                plannedSections={plannedSections}
+                removePlannedCourse={removePlannedCourse}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
 
       {/* Header */}
       <div className="space-y-1">
         <h1 className="text-3xl font-bold">Course Recommendations</h1>
-        <p className="text-zinc-500 text-sm">
+        <p className="text-sm text-muted-foreground">
           {audit.student.name ?? 'Student'}
           {audit.credits.completed != null && ` · ${audit.credits.completed} credits completed`}
           {audit.credits.in_progress != null && ` · ${audit.credits.in_progress} in progress`}
@@ -469,34 +540,57 @@ export default function CoursesPage() {
         </p>
       </div>
 
+      {/* Raw parsed audit data */}
+      <Accordion type="single" collapsible className="mt-6">
+        <AccordionItem value="raw-audit">
+          <AccordionTrigger>View parsed audit data</AccordionTrigger>
+          <AccordionContent>
+            <pre className="max-h-96 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs">
+              {JSON.stringify(audit, null, 2)}
+            </pre>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {loadError && (
+        <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {loadError} Try refreshing the page, or{' '}
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            className="underline underline-offset-2"
+          >
+            upload your audit again
+          </button>
+          .
+        </div>
+      )}
 
       {/* Missing gen-ed badges */}
       {missingGenEds.length > 0 && (
-        <div className="space-y-2">
+        <div className="mt-8 space-y-2">
           <h2 className="text-lg font-semibold">Missing Gen-Eds</h2>
-          <div className="flex gap-2 flex-wrap">
-            {missingGenEds.map(g => (
-              <span key={g} className="px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-sm font-mono font-medium">
+          <div className="flex flex-wrap gap-2">
+            {missingGenEds.map((g) => (
+              <Badge key={g} variant="secondary" className="font-mono">
                 {g}
-              </span>
+              </Badge>
             ))}
           </div>
         </div>
       )}
 
-      <section className="space-y-8">
+      <section className="mt-10 space-y-8">
         <h2 className="text-lg font-semibold">CS course recommendations</h2>
         {occupiedPicks.length > 0 && (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="text-xs text-muted-foreground">
             Lists hide courses that only have open sections overlapping your selected meeting times
             (M/T/W/R/F). Courses already in your selection stay visible.
           </p>
         )}
-        {loading && (
-          <p className="text-sm text-zinc-500">Loading CMSC catalog and sections…</p>
-        )}
+        {loading && <CourseGridSkeleton />}
         {!loading && csBucketsDisplay && csTotal === 0 && (
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-muted-foreground">
             No CMSC courses to show: prerequisites and your audit already rule some out, and we only list undergraduate courses (below 500) with at least one open seat this term.
           </p>
         )}
@@ -507,11 +601,17 @@ export default function CoursesPage() {
             if (list.length === 0) return null;
             const csProgress = csBucketProgressLabel(audit, key);
             return (
-              <div key={key} className="space-y-3">
-                <h3 className="text-base font-medium text-zinc-700 dark:text-zinc-300">
+              <motion.div
+                key={key}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35 }}
+                className="space-y-3"
+              >
+                <h3 className="text-base font-medium text-foreground/80">
                   <span>{title}</span>
                   {csProgress != null && (
-                    <span className="ml-2 font-normal tabular-nums text-zinc-500 dark:text-zinc-400">
+                    <span className="ml-2 font-normal tabular-nums text-muted-foreground">
                       · {csProgress}
                     </span>
                   )}
@@ -526,41 +626,45 @@ export default function CoursesPage() {
                     />
                   ))}
                 </div>
-              </div>
+              </motion.div>
             );
           })}
       </section>
 
       {missingGenEds.length > 0 && (
-        <section className="space-y-8 border-t border-zinc-100 pt-10">
+        <section className="mt-10 space-y-8 border-t border-border pt-10">
           <h2 className="text-lg font-semibold">Gen-Ed course recommendations</h2>
           {occupiedPicks.length > 0 && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-muted-foreground">
               Same schedule filter: only courses with at least one open section that does not overlap
               your selections.
             </p>
           )}
-          {loading && (
-            <p className="text-sm text-zinc-500">Loading gen-ed courses and sections…</p>
-          )}
+          {loading && <CourseGridSkeleton />}
           {!loading &&
             missingGenEds.map((tag) => {
               const list = coursesByGenEdDisplay[tag] ?? [];
               const top = list.slice(0, TOP_GEN_ED_COURSES_PER_TAG);
               return (
-                <div key={tag} className="space-y-3">
-                  <h3 className="text-base font-medium text-zinc-700 dark:text-zinc-300">
+                <motion.div
+                  key={tag}
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="space-y-3"
+                >
+                  <h3 className="text-base font-medium text-foreground/80">
                     <span className="font-mono">{tag}</span>
                   </h3>
                   {list.length === 0 ? (
-                    <p className="text-sm text-zinc-500">
+                    <p className="text-sm text-muted-foreground">
                       No undergraduate courses with open seats for this tag after your audit and
                       prerequisite filters.
                     </p>
                   ) : (
                     <>
                       {list.length > TOP_GEN_ED_COURSES_PER_TAG && (
-                        <p className="text-xs text-zinc-500">
+                        <p className="text-xs text-muted-foreground">
                           Top {TOP_GEN_ED_COURSES_PER_TAG} of {list.length} (most overlapping missing
                           tags, then average GPA).
                         </p>
@@ -577,22 +681,17 @@ export default function CoursesPage() {
                       </div>
                     </>
                   )}
-                </div>
+                </motion.div>
               );
             })}
         </section>
       )}
 
-      <div className="pt-4 border-t border-zinc-100">
-        <button
-          onClick={() => router.push('/')}
-          className="text-sm text-zinc-400 hover:text-zinc-600 transition-colors"
-        >
-          ← Upload a different audit
-        </button>
+      <div className="mt-10 border-t border-border pt-4">
+        <Button variant="ghost" onClick={() => router.push('/')} className="text-muted-foreground">
+          <X /> Upload a different audit
+        </Button>
       </div>
     </main>
   );
 }
-
-
