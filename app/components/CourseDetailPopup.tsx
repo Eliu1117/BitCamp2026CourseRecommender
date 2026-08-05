@@ -4,6 +4,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { formatJupiterMeeting, getPlanetTerpProfessor, type JupSection } from '@/lib/api';
 import { sectionConflictsOccupiedPlan } from '@/lib/courses';
 import type { CourseCardProps } from './CourseCard';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 
 export type CourseDetailPopupProps = Omit<CourseCardProps, 'onPlanSectionSelect'> & {
   open: boolean;
@@ -34,21 +43,8 @@ export default function CourseDetailPopup({
   const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
 
   useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  useEffect(() => {
-    if (!open || profs.length === 0) {
-      setProfRatings({});
-      return;
-    }
+    if (!open || profs.length === 0) return;
     let cancelled = false;
-    setProfRatings({});
 
     Promise.all(
       profs.map(async (p) => {
@@ -65,58 +61,31 @@ export default function CourseDetailPopup({
     };
   }, [open, profNamesKey]);
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
-    >
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/50"
-        aria-label="Close details"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="course-popup-title"
-        className="relative z-10 max-h-[min(90vh,48rem)] w-full max-w-2xl overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-6 shadow-xl dark:border-zinc-800 dark:bg-zinc-950"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <header className="min-w-0 space-y-1">
-            <p className="font-mono text-sm text-zinc-500">{courseNumber}</p>
-            <h2 id="course-popup-title" className="text-xl font-semibold">
-              {title}
-            </h2>
-            <p className="text-sm text-zinc-500">{credits} credits</p>
-          </header>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
-            Close
-          </button>
-        </div>
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[min(90vh,48rem)] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <p className="font-mono text-sm text-muted-foreground">{courseNumber}</p>
+          <DialogTitle className="text-xl">{title}</DialogTitle>
+          <DialogDescription>{credits} credits</DialogDescription>
+        </DialogHeader>
 
-        <section className="mt-5">
-          <h3 className="text-sm font-medium text-zinc-500">Description</h3>
-          <p className="mt-1 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-            {description}
-          </p>
+        <section>
+          <h3 className="text-sm font-medium text-muted-foreground">Description</h3>
+          <p className="mt-1 text-sm leading-relaxed">{description}</p>
         </section>
 
-        {/* Available sections */}
-        <section className="mt-5">
-          <h3 className="text-sm font-medium text-zinc-500">Available Sections</h3>
+        <Separator />
+
+        <section>
+          <h3 className="text-sm font-medium text-muted-foreground">Available Sections</h3>
           {sections.length === 0 ? (
-            <p className="mt-1 text-sm text-zinc-400">No sections available this semester.</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              No sections available this semester.
+            </p>
           ) : (
             <>
-              <p className="mt-1 text-xs text-zinc-400">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Choose a section with open seats to select it and close this dialog.
                 {planBlocksOtherCourses &&
                   ' Sections greyed out overlap another course you already put on your plan (same day, overlapping times).'}
@@ -132,16 +101,16 @@ export default function CourseDetailPopup({
                     <>
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono font-medium">{s.sec_code}</span>
-                        <span className="min-w-0 truncate text-zinc-500">
+                        <span className="min-w-0 truncate text-muted-foreground">
                           {s.instructors.join(', ')}
                         </span>
                         <span
-                          className={`shrink-0 font-medium tabular-nums ${hasOpenSeats ? 'text-green-600' : 'text-red-500'}`}
+                          className={`shrink-0 font-medium tabular-nums ${hasOpenSeats ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}
                         >
                           {s.open_seats}/{s.total_seats} open
                         </span>
                       </div>
-                      <div className="mt-1 space-y-0.5 text-xs text-zinc-400">
+                      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                         {s.meetings.map((m, i) => (
                           <div key={i}>{formatJupiterMeeting(m)}</div>
                         ))}
@@ -151,10 +120,8 @@ export default function CourseDetailPopup({
                   return (
                     <li
                       key={s.sec_code}
-                      className={`overflow-hidden rounded-lg border text-sm dark:border-zinc-800 ${
-                        selectable
-                          ? 'border-zinc-200 dark:border-zinc-700'
-                          : 'border-zinc-100 bg-zinc-50/80 opacity-70 dark:border-zinc-800 dark:bg-zinc-900/40'
+                      className={`overflow-hidden rounded-lg border text-sm ${
+                        selectable ? 'border-border' : 'border-border/60 bg-muted/40 opacity-70'
                       }`}
                     >
                       {selectable ? (
@@ -165,7 +132,7 @@ export default function CourseDetailPopup({
                             onClose();
                           }}
                           aria-label={`Select section ${s.sec_code}`}
-                          className="w-full px-3 py-2 text-left transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-400 dark:hover:bg-zinc-900/80"
+                          className="w-full px-3 py-2 text-left transition hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                         >
                           {body}
                         </button>
@@ -189,10 +156,12 @@ export default function CourseDetailPopup({
           )}
         </section>
 
-        <section className="mt-5">
-          <h3 className="text-sm font-medium text-zinc-500">Instructors</h3>
+        <Separator />
+
+        <section>
+          <h3 className="text-sm font-medium text-muted-foreground">Instructors</h3>
           {profs.length === 0 ? (
-            <p className="mt-1 text-sm text-zinc-400">None listed</p>
+            <p className="mt-1 text-sm text-muted-foreground">None listed</p>
           ) : (
             <ul className="mt-2 space-y-2 text-sm">
               {profs.map((p) => {
@@ -200,10 +169,10 @@ export default function CourseDetailPopup({
                 return (
                   <li
                     key={p.name}
-                    className="flex items-center justify-between rounded-lg border border-zinc-100 px-3 py-2 dark:border-zinc-800"
+                    className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
                   >
                     <span className="font-medium">{p.name}</span>
-                    <span className="text-zinc-500 tabular-nums">
+                    <span className="text-muted-foreground tabular-nums">
                       {rating != null ? `${rating.toFixed(1)} ★` : '—'}
                     </span>
                   </li>
@@ -213,26 +182,27 @@ export default function CourseDetailPopup({
           )}
         </section>
 
-        <section className="mt-5">
-          <h3 className="text-sm font-medium text-zinc-500">
+        <Separator />
+
+        <section>
+          <h3 className="text-sm font-medium text-muted-foreground">
             Courses that require this one
           </h3>
           {unlocks.length === 0 ? (
-            <p className="mt-1 text-sm text-zinc-400">None listed</p>
+            <p className="mt-1 text-sm text-muted-foreground">None listed</p>
           ) : (
             <ul className="mt-2 flex flex-wrap gap-2">
               {unlocks.map((code) => (
-                <li
-                  key={code}
-                  className="rounded-md bg-zinc-100 px-2 py-1 font-mono text-xs dark:bg-zinc-900"
-                >
-                  {code}
+                <li key={code}>
+                  <Badge variant="secondary" className="font-mono">
+                    {code}
+                  </Badge>
                 </li>
               ))}
             </ul>
           )}
         </section>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

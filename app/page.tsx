@@ -1,77 +1,62 @@
+import { FileSearch2, ListChecks, Radar } from 'lucide-react';
+
 import AuditUploader from '@/app/components/AuditUploader';
-import { getAllCoursesByAttribute, getAllCoursesByGenEd, getCoursesByMultipleGenEds, getSectionsByCourse} from '@/lib/courses';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-export default async function Home() {
-  // const [cmsccourses, scisdshu, dssp] = await Promise.all([
-  //   getAllCoursesByAttribute({ dept_id: 'CMSC', credits: 4}),
-  //   getCoursesByMultipleGenEds('SCIS DSHU'),
-  //   getAllCoursesByGenEd('DSSP'),
-  // ]);
+const FEATURES = [
+  {
+    icon: FileSearch2,
+    title: 'Custom DOM audit parser',
+    description:
+      "Parses UMD's uAchieve HTML export directly in your browser — no data ever leaves your machine.",
+  },
+  {
+    icon: Radar,
+    title: 'Real-time seat & section data',
+    description:
+      'Cross-references live Testudo section data so you only see courses with open seats this term.',
+  },
+  {
+    icon: ListChecks,
+    title: 'Prerequisite-aware recommendations',
+    description:
+      'Filters out courses you can\'t take yet and ranks the rest by what they unlock next.',
+  },
+];
 
+export default function Home() {
   return (
+    <main className="mx-auto w-full max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+      <div className="animate-in fade-in slide-in-from-bottom-2 mb-10 space-y-3 text-center duration-700 sm:mb-14">
+        <p className="text-sm font-medium text-muted-foreground">
+          UMD Computer Science Course Recommender
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+          Turn your degree audit into a course plan in seconds.
+        </h1>
+        <p className="mx-auto max-w-2xl text-muted-foreground">
+          Upload your UMD uAchieve degree audit and get personalized, prerequisite-aware course
+          recommendations with live seat and section data — built for Computer Science majors.
+        </p>
+      </div>
 
-    <main className="px-6 py-12 space-y-10">
-      <AuditUploader />
-      {/* <div className="grid grid-cols-3 gap-8">
-        <SectionList title="4 Credit CS Courses" courses={cmsccourses} />
-        <SectionList title="SCIS and DSHU Courses" courses={scisdshu} />
-        <SectionList title="DSSP Courses" courses={dssp} />
-      </div> */}
+      <div className="animate-in fade-in slide-in-from-bottom-2 mb-8 grid gap-4 delay-100 duration-700 sm:grid-cols-3 sm:mb-12">
+        {FEATURES.map(({ icon: Icon, title, description }) => (
+          <Card key={title} size="sm">
+            <CardHeader>
+              <Icon className="mb-1 size-5 text-muted-foreground" aria-hidden="true" />
+              <CardTitle className="text-sm">{title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">{description}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <div className="animate-in fade-in slide-in-from-bottom-2 delay-200 duration-700">
+        <AuditUploader />
+      </div>
     </main>
   );
 }
-
-// async function CourseCard({ course }: { course: Awaited<ReturnType<typeof getAllCoursesByAttribute>>[number] }) {  
-//   const sections = await getSectionsByCourse(course.course_id, CURRENTSEM)
-//   return (
-//     <li className="rounded-lg border p-4 space-y-2">
-//       <p className="font-mono text-sm text-zinc-500">{course.course_id}</p>
-//       <p className="font-medium">{course.name}</p>
-//       <p className="text-sm text-zinc-400">{course.credits} cr · {course.department}</p>
-
-//       <div className="space-y-1 pt-1">
-//         {sections.map(section => (
-//           <div key={section.sec_code} className="text-sm flex justify-between">
-//             <span className="font-mono">{section.sec_code}</span>
-//             <span className="text-zinc-800">{section.instructors.join(', ')}</span>
-//             <span className={(section.open_seats) > 0 ? 'text-green-600' : 'text-red-500'}>
-//               {section.open_seats}/{section.total_seats} open
-//             </span>
-
-//             <div className="space-y-0.5 text-zinc-800">
-//             {section.meetings.map((m, i) => {
-//               const { days, start, end, building, room } = parseMeeting(m);
-//               return (
-//                 <div key={i}>
-//                   {days} {start}–{end} · {building} {room}
-//                 </div>
-//               );
-//             })}
-//           </div>
-//           </div>
-
-          
-//         ))}
-//       </div>
-//     </li>
-//   );
-// }
-
-// function SectionList({ title, courses }: { title: string; courses: Awaited<ReturnType<typeof getAllCoursesByAttribute>> }) {
-//   return (
-//     <div>
-//       <h1 className="text-2xl font-semibold mb-4">{title}</h1>
-//       <ul className="space-y-3">
-//         {courses.map(course => (
-//           <CourseCard key={course.course_id} course={course} />
-//         ))}
-//       </ul>
-//     </div>
-//   );
-// }
-
-// function parseMeeting(m: string) {
-//   const [days, start, end, building, room] = m.split('-');
-//   return { days, start, end, building, room };
-// }
-

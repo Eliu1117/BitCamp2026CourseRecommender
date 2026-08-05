@@ -5,6 +5,11 @@ import CourseDetailPopup from './CourseDetailPopup';
 import type { JupSection } from '@/lib/api';
 import { getPlanetTerpCourse, getPlanetTerpProfessor } from '@/lib/api';
 import type { OccupiedSectionPick } from '@/lib/courses';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 export type Prof = {
   name: string;
@@ -51,52 +56,43 @@ export default function CourseCard({
 }: CourseCardProps) {
   const [popupOpen, setPopupOpen] = useState(false);
 
+  // `courseGpa`/`avgStars` only ever hold *fetched* values; when the caller already
+  // supplies `planetTerpCourseGpa` or there are no profs to look up, we render directly
+  // from props/derived values below instead of mirroring them into state.
   const [courseGpa, setCourseGpa] = useState<number | null>(null);
+  const [gpaLoading, setGpaLoading] = useState(true);
   const [avgStars, setAvgStars] = useState<number | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
+  const hasKnownGpa = planetTerpCourseGpa != null && planetTerpCourseGpa > 0;
+  const displayGpa = hasKnownGpa ? planetTerpCourseGpa : courseGpa;
 
   useEffect(() => {
-    setCourseGpa(null);
-    setAvgStars(null);
-  }, [courseNumber]);
-
-  useEffect(() => {
+    if (hasKnownGpa) return;
     let cancelled = false;
-    if (planetTerpCourseGpa != null && planetTerpCourseGpa > 0) {
-      setCourseGpa(planetTerpCourseGpa);
-    } else {
-      getPlanetTerpCourse(courseNumber).then((data) => {
-        if (cancelled) return;
-        const g = data?.average_gpa;
-        if (g != null && g > 0) setCourseGpa(g);
-        else setCourseGpa(null);
-      });
-    }
+    getPlanetTerpCourse(courseNumber).then((data) => {
+      if (cancelled) return;
+      const g = data?.average_gpa;
+      setCourseGpa(g != null && g > 0 ? g : null);
+      setGpaLoading(false);
+    });
     return () => {
       cancelled = true;
     };
-  }, [courseNumber, planetTerpCourseGpa]);
+  }, [courseNumber, hasKnownGpa]);
 
   useEffect(() => {
+    if (!profNamesKey) return;
     let cancelled = false;
-    if (!profNamesKey) {
-      setAvgStars(null);
-      return () => {
-        cancelled = true;
-      };
-    }
     const profNames = profNamesKey.split('\0');
     Promise.all(profNames.map(getPlanetTerpProfessor)).then((results) => {
       if (cancelled) return;
       const ratings = results
         .map((r) => r?.average_rating)
         .filter((v): v is number => v != null && v > 0);
-      if (ratings.length > 0) {
-        setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
-      } else {
-        setAvgStars(null);
-      }
+      setAvgStars(ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null);
+      setStatsLoading(false);
     });
     return () => {
       cancelled = true;
@@ -108,66 +104,83 @@ export default function CourseCard({
 
   return (
     <>
-      <article className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <header className="space-y-1">
+      <Card className="transition-shadow hover:shadow-md">
+        <CardHeader>
           <div className="flex items-baseline justify-between gap-2">
-            <p className="font-mono text-sm text-zinc-500">{courseNumber}</p>
+            <p className="font-mono text-sm text-muted-foreground">{courseNumber}</p>
             {unlocks.length > 0 && (
-              <span
-                className="shrink-0 font-mono text-xs font-semibold tabular-nums text-amber-700 dark:text-amber-500"
-                title="Prerequisite for other courses — see details"
-                aria-label="Prerequisite for other courses; open details for the list"
-              >
-                (P)
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="shrink-0 font-mono text-xs font-semibold tabular-nums text-amber-600 dark:text-amber-500"
+                    aria-label="Prerequisite for other courses; open details for the list"
+                  >
+                    (P)
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Prerequisite for other courses — see details</TooltipContent>
+              </Tooltip>
             )}
           </div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-zinc-500">{credits} cr</p>
+          <h2 className="text-lg font-semibold leading-snug">{title}</h2>
+          <p className="text-sm text-muted-foreground">{credits} cr</p>
           {genEdTags.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-1">
-              {genEdTags.map(tag => (
-                <span key={tag} className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-mono text-xs">
+              {genEdTags.map((tag) => (
+                <Badge key={tag} variant="secondary" className="font-mono">
                   {tag}
-                </span>
+                </Badge>
               ))}
             </div>
           )}
-        </header>
+        </CardHeader>
 
-        <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <dt className="text-zinc-500">Avg. stars</dt>
-            <dd className="font-medium">{avgStars != null ? avgStars.toFixed(1) : '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-zinc-500">Avg. GPA</dt>
-            <dd className="font-medium">{courseGpa != null ? courseGpa.toFixed(2) : '—'}</dd>
-          </div>
-          {sections.length > 0 && (
-            <>
-              <div>
-                <dt className="text-zinc-500">Sections</dt>
-                <dd className="font-medium">{sections.length}</dd>
-              </div>
-              <div>
-                <dt className="text-zinc-500">Open seats</dt>
-                <dd className={`font-medium ${openSeats > 0 ? 'text-green-600' : 'text-red-500'}`}>
-                  {openSeats}/{totalSeats}
-                </dd>
-              </div>
-            </>
-          )}
-        </dl>
+        <CardContent>
+          <dl className="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <dt className="text-muted-foreground">Avg. stars</dt>
+              {profNamesKey && statsLoading ? (
+                <Skeleton className="mt-1 h-4 w-10" />
+              ) : (
+                <dd className="font-medium">{avgStars != null ? avgStars.toFixed(1) : '—'}</dd>
+              )}
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Avg. GPA</dt>
+              {!hasKnownGpa && gpaLoading ? (
+                <Skeleton className="mt-1 h-4 w-10" />
+              ) : (
+                <dd className="font-medium">{displayGpa != null ? displayGpa.toFixed(2) : '—'}</dd>
+              )}
+            </div>
+            {sections.length > 0 && (
+              <>
+                <div>
+                  <dt className="text-muted-foreground">Sections</dt>
+                  <dd className="font-medium">{sections.length}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Open seats</dt>
+                  <dd
+                    className={`font-medium ${openSeats > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}
+                  >
+                    {openSeats}/{totalSeats}
+                  </dd>
+                </div>
+              </>
+            )}
+          </dl>
 
-        <button
-          type="button"
-          onClick={() => setPopupOpen(true)}
-          className="mt-4 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-500 dark:hover:bg-zinc-900"
-        >
-          Select sections
-        </button>
-      </article>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setPopupOpen(true)}
+            className="mt-4 w-full"
+          >
+            Select sections
+          </Button>
+        </CardContent>
+      </Card>
 
       <CourseDetailPopup
         open={popupOpen}
