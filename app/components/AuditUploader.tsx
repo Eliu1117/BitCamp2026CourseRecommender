@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { FileUp, Loader2, UploadCloud } from 'lucide-react';
@@ -68,36 +68,35 @@ export default function AuditUploader() {
     runParser(html);
   }
 
-  const handleDrop = useCallback(
-    async (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      dragCounter.current = 0;
-      setIsDragging(false);
-      if (loading) return;
-      const file = e.dataTransfer.files?.[0];
-      if (file) await handleFile(file);
-    },
-    [loading],
-  );
-
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  // Left as plain functions (not useCallback) — the React Compiler memoizes these
+  // automatically, and manual memoization here previously conflicted with its inference.
+  async function handleDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
-  }, []);
+    dragCounter.current = 0;
+    setIsDragging(false);
+    if (loading) return;
+    const file = e.dataTransfer.files?.[0];
+    if (file) await handleFile(file);
+  }
 
-  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+  }
+
+  function handleDragEnter(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     dragCounter.current += 1;
     setIsDragging(true);
-  }, []);
+  }
 
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     dragCounter.current -= 1;
     if (dragCounter.current <= 0) {
       dragCounter.current = 0;
       setIsDragging(false);
     }
-  }, []);
+  }
 
   function handlePasteSubmit() {
     if (!pastedHtml.trim()) {

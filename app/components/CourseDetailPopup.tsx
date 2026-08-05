@@ -43,12 +43,8 @@ export default function CourseDetailPopup({
   const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
 
   useEffect(() => {
-    if (!open || profs.length === 0) {
-      setProfRatings({});
-      return;
-    }
+    if (!open || profs.length === 0) return;
     let cancelled = false;
-    setProfRatings({});
 
     Promise.all(
       profs.map(async (p) => {

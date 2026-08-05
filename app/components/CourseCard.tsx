@@ -56,55 +56,42 @@ export default function CourseCard({
 }: CourseCardProps) {
   const [popupOpen, setPopupOpen] = useState(false);
 
+  // `courseGpa`/`avgStars` only ever hold *fetched* values; when the caller already
+  // supplies `planetTerpCourseGpa` or there are no profs to look up, we render directly
+  // from props/derived values below instead of mirroring them into state.
   const [courseGpa, setCourseGpa] = useState<number | null>(null);
+  const [gpaLoading, setGpaLoading] = useState(true);
   const [avgStars, setAvgStars] = useState<number | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   const profNamesKey = profs.map((p) => p.name.trim()).join('\0');
+  const hasKnownGpa = planetTerpCourseGpa != null && planetTerpCourseGpa > 0;
+  const displayGpa = hasKnownGpa ? planetTerpCourseGpa : courseGpa;
 
   useEffect(() => {
-    setCourseGpa(null);
-    setAvgStars(null);
-    setStatsLoading(true);
-  }, [courseNumber]);
-
-  useEffect(() => {
+    if (hasKnownGpa) return;
     let cancelled = false;
-    if (planetTerpCourseGpa != null && planetTerpCourseGpa > 0) {
-      setCourseGpa(planetTerpCourseGpa);
-    } else {
-      getPlanetTerpCourse(courseNumber).then((data) => {
-        if (cancelled) return;
-        const g = data?.average_gpa;
-        if (g != null && g > 0) setCourseGpa(g);
-        else setCourseGpa(null);
-      });
-    }
+    getPlanetTerpCourse(courseNumber).then((data) => {
+      if (cancelled) return;
+      const g = data?.average_gpa;
+      setCourseGpa(g != null && g > 0 ? g : null);
+      setGpaLoading(false);
+    });
     return () => {
       cancelled = true;
     };
-  }, [courseNumber, planetTerpCourseGpa]);
+  }, [courseNumber, hasKnownGpa]);
 
   useEffect(() => {
+    if (!profNamesKey) return;
     let cancelled = false;
-    if (!profNamesKey) {
-      setAvgStars(null);
-      setStatsLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
     const profNames = profNamesKey.split('\0');
     Promise.all(profNames.map(getPlanetTerpProfessor)).then((results) => {
       if (cancelled) return;
       const ratings = results
         .map((r) => r?.average_rating)
         .filter((v): v is number => v != null && v > 0);
-      if (ratings.length > 0) {
-        setAvgStars(ratings.reduce((a, b) => a + b, 0) / ratings.length);
-      } else {
-        setAvgStars(null);
-      }
+      setAvgStars(ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : null);
       setStatsLoading(false);
     });
     return () => {
@@ -152,7 +139,7 @@ export default function CourseCard({
           <dl className="grid grid-cols-2 gap-2 text-sm">
             <div>
               <dt className="text-muted-foreground">Avg. stars</dt>
-              {statsLoading ? (
+              {profNamesKey && statsLoading ? (
                 <Skeleton className="mt-1 h-4 w-10" />
               ) : (
                 <dd className="font-medium">{avgStars != null ? avgStars.toFixed(1) : '—'}</dd>
@@ -160,10 +147,10 @@ export default function CourseCard({
             </div>
             <div>
               <dt className="text-muted-foreground">Avg. GPA</dt>
-              {statsLoading ? (
+              {!hasKnownGpa && gpaLoading ? (
                 <Skeleton className="mt-1 h-4 w-10" />
               ) : (
-                <dd className="font-medium">{courseGpa != null ? courseGpa.toFixed(2) : '—'}</dd>
+                <dd className="font-medium">{displayGpa != null ? displayGpa.toFixed(2) : '—'}</dd>
               )}
             </div>
             {sections.length > 0 && (
