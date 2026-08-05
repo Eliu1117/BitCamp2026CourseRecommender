@@ -28,7 +28,9 @@ export default function Home() {
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
       <div className="animate-in fade-in slide-in-from-bottom-2 mb-10 space-y-3 text-center duration-700 sm:mb-14">
-        <p className="text-sm font-medium text-muted-foreground">Better Jupiterp</p>
+        <p className="text-sm font-medium text-muted-foreground">
+          UMD Computer Science Course Recommender
+        </p>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Turn your degree audit into a course plan in seconds.
         </h1>

@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Better Jupiterp | UMD Degree Audit & Course Recommendations",
+  title: "UMD Computer Science Course Recommender | Degree Audit & Course Recommendations",
   description:
     "Upload your UMD uAchieve degree audit and get personalized, prerequisite-aware course recommendations with live seat and section data.",
 };

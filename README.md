@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🪐 Better Jupiterp
+# 🪐 UMD Computer Science Course Recommender
 
 **Turn a UMD degree audit into a prerequisite-aware course plan in seconds.**
 
@@ -20,7 +20,7 @@
 
 ## ✨ Elevator Pitch
 
-Every semester, University of Maryland students dig through a wall of PDF-turned-HTML degree audits, cross-check dozens of prerequisite chains by hand, and refresh Testudo hoping a seat opens up. **Better Jupiterp** kills that busywork: drop in your uAchieve degree audit and it parses your entire academic record client-side, figures out exactly which requirements you still owe, and ranks the courses that satisfy them — enriched with live seat counts, section times, professor GPA history, and PlanetTerp ratings. No login, no data leaving your browser, no more tab-juggling between four different UMD websites.
+Every semester, University of Maryland students dig through a wall of PDF-turned-HTML degree audits, cross-check dozens of prerequisite chains by hand, and refresh Testudo hoping a seat opens up. The **UMD Computer Science Course Recommender** kills that busywork: drop in your uAchieve degree audit and it parses your entire academic record client-side, figures out exactly which requirements you still owe, and ranks the courses that satisfy them — enriched with live seat counts, section times, professor GPA history, and PlanetTerp ratings. No login, no data leaving your browser, no more tab-juggling between four different UMD websites.
 
 ## 📸 Screenshots
 
