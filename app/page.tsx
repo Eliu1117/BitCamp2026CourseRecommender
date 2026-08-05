@@ -14,7 +14,7 @@ const FEATURES = [
     icon: Radar,
     title: 'Real-time seat & section data',
     description:
-      'Cross-references live JupiterP section data so you only see courses with open seats this term.',
+      'Cross-references live Testudo section data so you only see courses with open seats this term.',
   },
   {
     icon: ListChecks,
