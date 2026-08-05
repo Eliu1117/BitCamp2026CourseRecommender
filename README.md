@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🪐 UMD Computer Science Course Recommender
+# UMD Computer Science Course Recommender
 
 **Turn a UMD degree audit into a prerequisite-aware course plan in seconds.**
 
@@ -18,23 +18,9 @@
 
 ---
 
-## ✨ Elevator Pitch
-
 Every semester, University of Maryland students dig through a wall of PDF-turned-HTML degree audits, cross-check dozens of prerequisite chains by hand, and refresh Testudo hoping a seat opens up. The **UMD Computer Science Course Recommender** kills that busywork: drop in your uAchieve degree audit and it parses your entire academic record client-side, figures out exactly which requirements you still owe, and ranks the courses that satisfy them — enriched with live seat counts, section times, professor GPA history, and PlanetTerp ratings. No login, no data leaving your browser, no more tab-juggling between four different UMD websites.
 
-## 📸 Screenshots
-
-> Drop your own captures into `docs/screenshots/` using the filenames below and they'll render automatically here.
-
-| Home & Upload | Course Recommendations |
-| --- | --- |
-| ![Homepage with drag-and-drop audit uploader](docs/screenshots/home.png) | ![Course cards with GPA, seats, and section data](docs/screenshots/courses.png) |
-
-| Course Detail Dialog | Mobile / Responsive View |
-| --- | --- |
-| ![Course detail dialog with prerequisites and professor ratings](docs/screenshots/detail-dialog.png) | ![Responsive mobile layout with selected-sections drawer](docs/screenshots/mobile.png) |
-
-## 🚀 Features
+## Features
 
 - **Custom DOM-based HTML parser** — `lib/parseAudit.ts` walks the raw uAchieve export in the browser (no server round-trip, no third-party upload) and turns it into a structured audit: completed courses, in-progress sections, unfulfilled requirement buckets, and Gen-Ed status.
 - **Prerequisite-aware recommendations** — cross-references your completed coursework against prerequisite chains so you only ever see courses you're actually eligible to take next.
@@ -45,7 +31,7 @@ Every semester, University of Maryland students dig through a wall of PDF-turned
 - **Light & dark mode** — theme-aware from the ground up via `next-themes`, with no flash-of-incorrect-theme on load.
 - **Unit-tested core logic** — course-matching and requirement-resolution logic is covered by a Vitest suite (`lib/courses.test.ts`).
 
-## 🧱 Tech Stack
+## Tech Stack
 
 | Layer | Choices |
 | --- | --- |
@@ -58,7 +44,7 @@ Every semester, University of Maryland students dig through a wall of PDF-turned
 | Testing | [Vitest](https://vitest.dev/) |
 | Data sources | [umd.io](https://beta.umd.io/), JupiterP (live sections), [PlanetTerp](https://planetterp.com/) (GPA & professor ratings) |
 
-## 🗺️ How It Works
+## How It Works
 
 1. **Upload** — you drag in (or paste) your uAchieve HTML degree audit on the homepage.
 2. **Parse** — `lib/parseAudit.ts` walks the DOM entirely client-side and produces a typed `AuditResult`: courses completed, in-progress, and requirement buckets still outstanding.
@@ -66,7 +52,7 @@ Every semester, University of Maryland students dig through a wall of PDF-turned
 4. **Enrich** — for each candidate course, the app fetches live section/seat data (JupiterP) and historical GPA/professor ratings (PlanetTerp) on demand.
 5. **Recommend** — the `/courses` page renders ranked, filterable course cards; selecting sections builds a running plan in a responsive sidebar/drawer.
 
-## 🏁 Local Setup
+## Local Setup
 
 **Prerequisites:** Node.js 20+ and npm.
 
@@ -94,7 +80,7 @@ npm run test       # run the Vitest suite once
 npm run test:watch # run Vitest in watch mode
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 app/
@@ -110,22 +96,3 @@ lib/
   api.ts              # umd.io / JupiterP / PlanetTerp API clients
   courses.test.ts     # Vitest unit tests for course-matching logic
 ```
-
-## 🛣️ Roadmap
-
-This project is being built out in phases; UI/UX polish is complete and the following are planned next:
-
-- [ ] Replace hardcoded semester codes with a dynamic lookup against umd.io
-- [ ] Move parsed-audit state out of `sessionStorage` and into a proper Context/Zustand store
-- [ ] Next.js `error.tsx` boundaries around API-dependent routes
-- [ ] Request caching / stale-while-revalidate for umd.io & JupiterP calls
-- [ ] Expanded test coverage for `parseAudit.ts` and the `AuditUploader` component
-- [ ] OpenGraph metadata & a full accessibility (contrast + keyboard nav) audit
-
-## 🤝 Contributing
-
-This started as a BitCamp 2026 project. Issues and pull requests are welcome — feel free to open one if you spot a bug or have an idea.
-
-## 📄 License
-
-No license has been applied yet; all rights reserved by the author for now.
