@@ -2,8 +2,6 @@
 
 # UMD Computer Science Course Recommender
 
-**Turn a UMD degree audit into a prerequisite-aware course plan in seconds.**
-
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
@@ -18,7 +16,7 @@
 
 ---
 
-Every semester, University of Maryland students dig through a wall of PDF-turned-HTML degree audits, cross-check dozens of prerequisite chains by hand, and refresh Testudo hoping a seat opens up. The **UMD Computer Science Course Recommender** kills that busywork: drop in your uAchieve degree audit and it parses your entire academic record client-side, figures out exactly which requirements you still owe, and ranks the courses that satisfy them — enriched with live seat counts, section times, professor GPA history, and PlanetTerp ratings. No login, no data leaving your browser, no more tab-juggling between four different UMD websites.
+Every semester, computer science students at the University of Maryland dig through courses in Testudo and spend time painstakingly analyzing their uAchieve degree audits to figure out the requirements they still lack. This tedious process is something that we figured we could fix. The **UMD Computer Science Course Recommender** helps handle this busywork: drop in an HTML of your uAchieve degree audit, and it parses your entire academic record client-side, figures out exactly which requirements you still owe, and ranks the courses that satisfy them, sorted by live seat counts, section times, professor GPA history, and PlanetTerp ratings.
 
 ## Features
 
